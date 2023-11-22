@@ -1,5 +1,8 @@
-use std::{sync::{Mutex, Condvar, Arc, Weak}, collections::VecDeque, thread::{spawn}, borrow::BorrowMut};
+use std::{sync::{Mutex, Condvar, Arc, Weak}, collections::VecDeque, thread::{spawn}, borrow::BorrowMut, time::{Duration, SystemTime}, mem::MaybeUninit};
+mod pthread;
+mod workqueue;
 
+use workqueue::*;
 
 struct GPS{
 
@@ -11,90 +14,63 @@ impl Callable for GPS{
     }
 }
 
-
-struct WorkItem{
-    queue:Weak<WorkQueue>,
-    parent:Weak<dyn Callable + Sync + Send>
+struct HRTEntry{
+    deadline:SystemTime,
+    workitem:Arc<WorkItem>
 }
 
-trait Callable {
-    fn call(&self);
+struct HRTQueue{
+    list:Mutex<VecDeque<HRTEntry>>,
 }
 
-impl WorkItem{
-    fn schedule(self:&Arc<Self>){  
-        self.queue.upgrade().unwrap().add(Arc::clone(self))
-    }
-}
-
-struct WorkQueue{
-    priority:u8,
-    list:Mutex<VecDeque<Arc<WorkItem>>>,
-    signal:Condvar,
-    ready_exit:Mutex<bool>
-}
-
-impl WorkQueue{
-    fn new(priority:u8) -> Arc<WorkQueue>{
-        let wq: WorkQueue<> = WorkQueue{
-            priority,
-            list:Mutex::new(VecDeque::new()),
-            signal:Condvar::new(),
-            ready_exit:Mutex::new(false)
-        };
-        let x = Arc::new(wq);
-
-        let x2 = Arc::clone(&x);
-        spawn(move || x.run());
-        x2
-    }
-
+impl HRTQueue{
     fn run(&self){
+        let mut sleep_time = Duration::from_millis(1);   // default to sleep 1ms
         loop{
-            {
-                let exit= self.ready_exit.lock().unwrap();
-                if *exit{
-                    break;
-                }
-            }
-            
-            loop{
-                let head = {
-                    let mut x = self.list.lock().unwrap();
-                    x.pop_front()
-                };
-                
-                if let Some(item) = head {
-                    item.parent.upgrade().unwrap().call();
+            let mut unlock_list = self.list.lock().unwrap();
+            if let Some(x) = unlock_list.front(){
+                let now = SystemTime::now();
+                if now >= x.deadline{
+                    x.workitem.schedule();
+
+                    unlock_list.pop_front();
                 }else{
-                    break;
+                    sleep_time = x.deadline.duration_since(now).unwrap();
                 }
             }
 
-            let _ = self.signal.wait(self.list.lock().unwrap()); 
-            // wait for other thread add item to queue          
+            std::thread::sleep(sleep_time);
         }
     }
 
-    fn add(&self, item:Arc<WorkItem>){
-        
-        self.list.lock().unwrap().push_back(item);
-        self.signal.notify_one();
-    }
+    fn add(&self,entry:HRTEntry){
+        let mut unlock_list = self.list.lock().unwrap();
+        let now = SystemTime::now();
 
-    fn exit(&self){
-        *self.ready_exit.lock().unwrap() = true;
+        if unlock_list.is_empty(){
+            unlock_list.push_back(entry);
+        }else{
+            let may_be_index = unlock_list.iter_mut().position(|x| x.deadline > now);
+            match may_be_index{
+                Some(index) => unlock_list.insert(index, entry),
+                None => unlock_list.push_back(entry)
+            };
+        }
+
+
     }
 }
 
 fn main() {
-    let wq = WorkQueue::new(0);
-    let gps  = Arc::new(GPS{});
-    let mut item = WorkItem{queue:Weak::new(),parent:Arc::downgrade(&(gps.clone() as Arc<dyn Callable + Send + Sync>))};
+    let wq = WorkQueue::new(4096,99);
+    let gps  = Arc::new(GPS{}) as Arc<dyn Callable + Send + Sync>;
+    let item = WorkItem::new(&wq,&gps);
 
-    *item.queue.borrow_mut() = Arc::downgrade(&wq);
     let x = Arc::new(item);
+    
     x.schedule();
     println!("Hello, world!");
+
     loop{};
+    
 }
