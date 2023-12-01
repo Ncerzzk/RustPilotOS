@@ -1,34 +1,41 @@
-use std::{sync::{Mutex, Condvar, Arc, Weak}, collections::VecDeque, thread::{spawn}, borrow::{Borrow, BorrowMut}, ptr::null_mut};
+#![feature(new_uninit)]
+use std::{sync::{Mutex, Condvar, Arc, Weak}, collections::VecDeque, thread::{spawn}, borrow::{Borrow, BorrowMut}, ptr::null_mut, any::Any, mem::MaybeUninit, pin::*};
 use crate::pthread::create_phtread;
+use std::boxed::Box;
 
 
 pub trait Callable {
-    fn call(&self);
+    fn call(&mut self);
 }
 
 pub struct WorkItem{
     queue:Weak<WorkQueue>,
-    parent:Weak<dyn Callable + Sync + Send>,
+    func:fn(* mut libc::c_void),
+    parent:* mut dyn Any
 }
 
 impl WorkItem{
-    pub fn schedule(self:&Arc<Self>){  
-        self.queue.upgrade().unwrap().add(self.parent.upgrade().unwrap())
+    pub fn new<'a>(wq:&Arc<WorkQueue>,parent:* mut dyn Any, func:fn(* mut libc::c_void)) -> Arc<WorkItem>{
+        Arc::new(
+            WorkItem{
+                queue:Arc::downgrade(wq),
+                func,
+                parent
+            }
+        )
     }
 
-    pub fn new(queue:&Arc<WorkQueue>,parent:&Arc<dyn Callable + Sync + Send>)->WorkItem{
-        WorkItem {
-            queue:Arc::downgrade(queue), 
-            parent:Arc::downgrade(parent as &Arc<dyn Callable + Send + Sync>)
-        }
+    pub fn schedule(self:&Arc<Self>){  
+        self.queue.upgrade().unwrap().add(self.clone())
     }
 }
 
 pub struct WorkQueue{
     priority:i32,
-    list:Mutex<VecDeque<Arc<dyn Callable + Sync + Send>>>,
+    list:Mutex<VecDeque<Arc<WorkItem>>>,
     signal:Condvar,
-    ready_exit:Mutex<bool>
+    ready_exit:Mutex<bool>,
+    thread_id:libc::pthread_t
 }
 
 extern "C" fn workqueue_thread_handler(ptr: *mut libc::c_void) -> *mut libc::c_void{
@@ -40,21 +47,25 @@ extern "C" fn workqueue_thread_handler(ptr: *mut libc::c_void) -> *mut libc::c_v
 }
 
 impl WorkQueue{
-    pub fn new(stack_size:u32,priority:i32) -> Arc<WorkQueue>{
-        let wq: WorkQueue<> = WorkQueue{
+    pub fn new(stack_size:u32,priority:i32,is_fifo_schedule:bool) -> Arc<WorkQueue>{
+        let mut wq: WorkQueue<> = WorkQueue{
             priority,
             list:Mutex::new(VecDeque::new()),
             signal:Condvar::new(),
-            ready_exit:Mutex::new(false)
+            ready_exit:Mutex::new(false),
+            thread_id:0
         };
-        let x = Arc::new(wq);
+        let x = Arc::new_cyclic(|weak|{
+            let _thread_id = create_phtread(stack_size, priority, workqueue_thread_handler,  weak.as_ptr() as *mut libc::c_void,is_fifo_schedule); 
+            wq.thread_id = _thread_id;
+            wq
+        });
 
-        let x2 = Arc::clone(&x);
-        create_phtread(stack_size, priority, workqueue_thread_handler, Arc::as_ptr(&x).cast_mut() as *mut libc::c_void,true);
-        x2
+        x
     }
 
     pub fn run(&self){
+ 
         loop{
             {
                 let exit= self.ready_exit.lock().unwrap();
@@ -70,7 +81,7 @@ impl WorkQueue{
                 };
                 
                 if let Some(item) = head {
-                    item.call();
+                    (item.func)(item.parent as *mut libc::c_void);
                 }else{
                     break;
                 }
@@ -81,7 +92,7 @@ impl WorkQueue{
         }
     }
 
-    pub fn add(&self, item:Arc<dyn Callable + Send + Sync>){
+    pub fn add(&self, item:Arc<WorkItem>){
         
         self.list.lock().unwrap().push_back(item);
         self.signal.notify_one();
@@ -96,8 +107,42 @@ impl WorkQueue{
 #[cfg(test)]
 mod tests{
     use super::*;
+
+    struct GPS{
+        item:Arc<WorkItem>
+    }
+    
+    impl GPS {
+        fn run(_:*mut libc::c_void){
+            println!("GPS is running!");
+        }
+
+        fn new(wq:&Arc<WorkQueue>) -> Arc<GPS> {
+            let gps= Arc::new_cyclic(
+                |gps_weak|{
+                    let item = WorkItem{
+                        parent:gps_weak.as_ptr() as *mut GPS,
+                        queue:Arc::downgrade(wq),
+                        func:GPS::run
+                    };
+                    GPS{
+                        item:Arc::new(item)
+                    }
+                }
+            );
+            gps
+        }
+    }
+
     #[test]
     fn test_workqueue_basic(){
+        let wq = WorkQueue::new(2048,10,false);
 
+        let gps = GPS::new(&wq);
+        gps.item.schedule();
+        unsafe{
+            libc::pthread_join(wq.thread_id, std::ptr::null_mut());
+        }
+        
     }
 }

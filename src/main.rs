@@ -4,16 +4,6 @@ mod workqueue;
 
 use workqueue::*;
 
-struct GPS{
-
-}
-
-impl Callable for GPS{
-    fn call(&self) {
-        println!("GPS Thread!");
-    }
-}
-
 struct HRTEntry{
     deadline:SystemTime,
     workitem:Arc<WorkItem>
@@ -47,8 +37,8 @@ impl HRTQueue{
         let mut unlock_list = self.list.lock().unwrap();
         let now = SystemTime::now();
 
-        if unlock_list.is_empty(){
-            unlock_list.push_back(entry);
+        if unlock_list.is_empty() || unlock_list.front().unwrap().deadline > now{
+            unlock_list.push_front(entry);
         }else{
             let may_be_index = unlock_list.iter_mut().position(|x| x.deadline > now);
             match may_be_index{
@@ -62,15 +52,5 @@ impl HRTQueue{
 }
 
 fn main() {
-    let wq = WorkQueue::new(4096,99);
-    let gps  = Arc::new(GPS{}) as Arc<dyn Callable + Send + Sync>;
-    let item = WorkItem::new(&wq,&gps);
-
-    let x = Arc::new(item);
-    
-    x.schedule();
     println!("Hello, world!");
-
-    loop{};
-    
 }
