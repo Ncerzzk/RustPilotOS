@@ -105,19 +105,24 @@ impl WorkQueue{
 
 
 #[cfg(test)]
-mod tests{
+pub mod tests{
     use super::*;
 
-    struct GPS{
-        item:Arc<WorkItem>
+    pub struct GPS{
+        pub item:Arc<WorkItem>,
+        pub finish:bool
     }
     
     impl GPS {
-        fn run(_:*mut libc::c_void){
+        fn run(ptr:*mut libc::c_void){
+            let gps = unsafe{
+                &mut *(ptr as *mut Self)
+            };
+            gps.finish = true;
             println!("GPS is running!");
         }
 
-        fn new(wq:&Arc<WorkQueue>) -> Arc<GPS> {
+        pub fn new(wq:&Arc<WorkQueue>) -> Arc<GPS> {
             let gps= Arc::new_cyclic(
                 |gps_weak|{
                     let item = WorkItem{
@@ -126,7 +131,8 @@ mod tests{
                         func:GPS::run
                     };
                     GPS{
-                        item:Arc::new(item)
+                        item:Arc::new(item),
+                        finish:false
                     }
                 }
             );
@@ -140,9 +146,7 @@ mod tests{
 
         let gps = GPS::new(&wq);
         gps.item.schedule();
-        unsafe{
-            libc::pthread_join(wq.thread_id, std::ptr::null_mut());
-        }
-        
+        while gps.finish==false{};
+        wq.exit();
     }
 }
