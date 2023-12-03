@@ -15,7 +15,7 @@ const DURATION_1_MS:Duration = Duration::from_millis(1);
 
 #[allow(unreachable_code)] 
 extern "C" fn HRTQueue_run(ptr:*mut libc::c_void)-> *mut libc::c_void{
-    let htr_queue = unsafe{&mut *(ptr as *mut HRTQueue)};
+    let htr_queue = unsafe{&*(ptr as *mut HRTQueue)};
 
     let mut sleep_time = DURATION_1_MS;   // default to sleep 1ms
 

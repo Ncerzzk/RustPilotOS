@@ -115,6 +115,9 @@ pub mod tests{
     
     impl GPS {
         fn run(ptr:*mut libc::c_void){
+            // actually we should not get a mut ptr and directly change its value here
+            // as there may be other threads rely on the it
+            // while it is just for test here, don't do more work to make self worried
             let gps = unsafe{
                 &mut *(ptr as *mut Self)
             };
