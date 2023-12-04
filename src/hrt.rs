@@ -1,12 +1,18 @@
-use std::{sync::{Mutex, Arc},boxed::Box, collections::VecDeque, time::{Duration, SystemTime}};
+use std::{sync::{Mutex, Arc,LazyLock},boxed::Box, collections::VecDeque, time::{Duration, SystemTime}};
 
 use crate::{workqueue::*, pthread::*};
-struct HRTEntry{
-    deadline:SystemTime,
-    workitem:Arc<WorkItem>
+
+pub static HRT_QUEUE: LazyLock<Box<HRTQueue>> = LazyLock::new(|| {
+    let m = HRTQueue::new();
+    m
+});
+
+pub struct HRTEntry{
+    pub deadline:SystemTime,
+    pub workitem:Arc<WorkItem>
 }
 
-struct HRTQueue{
+pub struct HRTQueue{
     list:Mutex<VecDeque<HRTEntry>>,
     thread_id:libc::pthread_t
 }
@@ -77,7 +83,7 @@ impl HRTQueue{
         }
     }
 
-    fn add(&self,entry:HRTEntry){
+    pub fn add(&self,entry:HRTEntry){
         let mut unlock_list = self.list.lock().unwrap();
 
         if unlock_list.is_empty() || unlock_list.front().unwrap().deadline > entry.deadline{
