@@ -3,6 +3,7 @@ use std::{sync::{Mutex, Condvar, Arc, Weak}, collections::VecDeque, thread::{spa
 mod pthread;
 mod workqueue;
 mod hrt;
+mod msg;
 
 fn main() {
     println!("Hello, world!");
