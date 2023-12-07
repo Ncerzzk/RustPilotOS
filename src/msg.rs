@@ -1,5 +1,5 @@
 
-use std::{sync::{LazyLock, RwLock, Arc, Weak, Mutex}, collections::HashMap, mem};
+use std::{sync::{LazyLock, RwLock, Arc, Weak, Mutex}, collections::HashMap, mem::{self, MaybeUninit}};
 
 struct MSGPublisher{
     parent:Weak<MSGEntry>
@@ -21,7 +21,38 @@ impl MSGPublisher{
 }
 
 struct MSGSubscriber{
+    parent:Weak<MSGEntry>,
+    last_index:u32
+}
 
+impl MSGSubscriber{
+    fn new(name:&'static str)-> Arc<Self>{
+        let entry = MSGEntry::find(name).unwrap();
+        let sub = Arc::new(MSGSubscriber{
+            parent:Arc::downgrade(entry),
+            last_index:0
+        });
+        entry.subscribers.write().unwrap().push(sub.clone());
+        sub
+    }
+
+    fn check_update(self:&Arc::<Self>)->bool{
+       self.last_index != self.parent.upgrade().unwrap().msg.read().unwrap().index 
+    }
+
+    fn get_latest<T:MessageMetaData>(self:&Arc::<Self>)->T{
+        let entry = &self.parent.upgrade().unwrap();
+        let msg = &entry.msg.read().unwrap();
+        let mut ret = MaybeUninit::<T>::zeroed();
+        let data = &msg.data;
+        unsafe{
+            let self_ptr = self.as_ref() as *const Self as *mut Self;
+            (*self_ptr).last_index = msg.index;
+            std::ptr::copy_nonoverlapping(data.as_ref() as *const dyn MessageMetaData as *const T, ret.as_mut_ptr(), 1);
+
+            ret.assume_init()
+        }
+    }
 }
 
 trait MessageMetaData{}
@@ -33,7 +64,7 @@ struct Message{
 struct MSGEntry{
     name:&'static str,
     publisher:MSGPublisher,
-    subscribers:Vec<Arc<MSGSubscriber>>,
+    subscribers:RwLock<Vec<Arc<MSGSubscriber>>>,
     msg:RwLock<Message>
 }
 
@@ -51,7 +82,7 @@ impl MSGEntry{
             MSGEntry{
                 name,
                 publisher:MSGPublisher{parent:weak.clone()},
-                subscribers:Vec::new(),
+                subscribers:RwLock::new(Vec::new()),
                 msg:RwLock::new(message)
             }
         })
@@ -107,7 +138,7 @@ mod tests{
     }
 
     #[test]
-    fn test_msg_publish(){
+    fn test_msg_publish_and_subscribe(){
         add_message_entry::<GyroMSG>("gyro");
 
         let imu = MSGPublisher::new("gyro");
@@ -121,6 +152,10 @@ mod tests{
             let a = msg.data.as_ref() as *const dyn MessageMetaData as *const GyroMSG;
             assert_eq!(*a,test_data);
         }
+
+        let suber = MSGSubscriber::new("gyro");
+        assert_eq!(suber.check_update(),true);
+        assert_eq!(suber.get_latest::<GyroMSG>(),test_data);
     }
 
 }
