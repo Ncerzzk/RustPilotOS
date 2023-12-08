@@ -12,17 +12,28 @@ impl MSGPublisher{
 
     fn publish<T:MessageMetaData>(&self,data:&T){
         let entry = self.parent.upgrade().unwrap();
-        let mut msg = entry.msg.write().unwrap();
-        unsafe{
-            std::ptr::copy_nonoverlapping(data as *const T, msg.data.as_mut() as *mut(dyn MessageMetaData+'static) as *mut T, 1);
+        {
+            let mut msg = entry.msg.write().unwrap();
+            unsafe{
+                std::ptr::copy_nonoverlapping(data as *const T, msg.data.as_mut() as *mut(dyn MessageMetaData+'static) as *mut T, 1);
+            }
+            msg.index  += 1;
         }
-        msg.index  += 1;
+
+        let sub_list = entry.subscribers.read().unwrap();
+        for i in sub_list.iter(){
+            if let Some(func) = i.callback{
+                func(i.callback_arg.unwrap())
+            }
+        }
     }
 }
 
 struct MSGSubscriber{
     parent:Weak<MSGEntry>,
-    last_index:u32
+    last_index:u32,
+    callback:Option<fn (*mut usize)>,
+    callback_arg:Option<*mut usize>
 }
 
 impl MSGSubscriber{
@@ -30,7 +41,9 @@ impl MSGSubscriber{
         let entry = MSGEntry::find(name).unwrap();
         let sub = Arc::new(MSGSubscriber{
             parent:Arc::downgrade(entry),
-            last_index:0
+            last_index:0,
+            callback:Option::None,
+            callback_arg:Option::None
         });
         entry.subscribers.write().unwrap().push(sub.clone());
         sub
@@ -51,6 +64,14 @@ impl MSGSubscriber{
             std::ptr::copy_nonoverlapping(data.as_ref() as *const dyn MessageMetaData as *const T, ret.as_mut_ptr(), 1);
 
             ret.assume_init()
+        }
+    }
+
+    fn register_callback(self:&Arc::<Self>,callback:fn (*mut usize),arg:*mut usize){
+        let ptr = self.as_ref() as *const Self as *mut Self;
+        unsafe{ 
+            (*ptr).callback = Option::Some(callback);
+            (*ptr).callback_arg = Option::Some(arg);
         }
     }
 }
@@ -137,9 +158,20 @@ mod tests{
         assert_eq!(MSG_LIST.len(),1);
     }
 
+
+    fn test_callback(ptr:*mut usize){
+        unsafe{
+            (*ptr) +=1
+        }
+        println!("sub callback!");
+    }
     #[test]
     fn test_msg_publish_and_subscribe(){
         add_message_entry::<GyroMSG>("gyro");
+
+        let suber = MSGSubscriber::new("gyro");
+        let mut num:usize = 0;
+        suber.register_callback(test_callback, &mut num as *mut usize);
 
         let imu = MSGPublisher::new("gyro");
         let test_data = get_test_gyromsg();
@@ -153,9 +185,9 @@ mod tests{
             assert_eq!(*a,test_data);
         }
 
-        let suber = MSGSubscriber::new("gyro");
         assert_eq!(suber.check_update(),true);
         assert_eq!(suber.get_latest::<GyroMSG>(),test_data);
+        assert_eq!(num,1);
     }
 
 }
