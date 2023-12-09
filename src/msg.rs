@@ -1,16 +1,16 @@
 
 use std::{sync::{LazyLock, RwLock, Arc, Weak, Mutex}, collections::HashMap, mem::{self, MaybeUninit}};
 
-struct MSGPublisher{
+pub struct MSGPublisher{
     parent:Weak<MSGEntry>
 }
 
 impl MSGPublisher{
-    fn new(name:&'static str)->&'static Self{
+    pub fn new(name:&'static str)->&'static Self{
         &(MSGEntry::find(name).unwrap().publisher)
     }
 
-    fn publish<T:MessageMetaData>(&self,data:&T){
+    pub fn publish<T:MessageMetaData>(&self,data:&T){
         let entry = self.parent.upgrade().unwrap();
         {
             let mut msg = entry.msg.write().unwrap();
@@ -29,7 +29,7 @@ impl MSGPublisher{
     }
 }
 
-struct MSGSubscriber{
+pub struct MSGSubscriber{
     parent:Weak<MSGEntry>,
     last_index:u32,
     callback:Option<fn (*mut usize)>,
@@ -37,7 +37,7 @@ struct MSGSubscriber{
 }
 
 impl MSGSubscriber{
-    fn new(name:&'static str)-> Arc<Self>{
+    pub fn new(name:&'static str)-> Arc<Self>{
         let entry = MSGEntry::find(name).unwrap();
         let sub = Arc::new(MSGSubscriber{
             parent:Arc::downgrade(entry),
@@ -49,11 +49,11 @@ impl MSGSubscriber{
         sub
     }
 
-    fn check_update(self:&Arc::<Self>)->bool{
+    pub fn check_update(self:&Arc::<Self>)->bool{
        self.last_index != self.parent.upgrade().unwrap().msg.read().unwrap().index 
     }
 
-    fn get_latest<T:MessageMetaData>(self:&Arc::<Self>)->T{
+    pub fn get_latest<T:MessageMetaData>(self:&Arc::<Self>)->T{
         let entry = &self.parent.upgrade().unwrap();
         let msg = &entry.msg.read().unwrap();
         let mut ret = MaybeUninit::<T>::zeroed();
@@ -67,7 +67,7 @@ impl MSGSubscriber{
         }
     }
 
-    fn register_callback(self:&Arc::<Self>,callback:fn (*mut usize),arg:*mut usize){
+    pub fn register_callback(self:&Arc::<Self>,callback:fn (*mut usize),arg:*mut usize){
         let ptr = self.as_ref() as *const Self as *mut Self;
         unsafe{ 
             (*ptr).callback = Option::Some(callback);
@@ -76,13 +76,13 @@ impl MSGSubscriber{
     }
 }
 
-trait MessageMetaData{}
+pub trait MessageMetaData{}
 
-struct Message{
+pub struct Message{
     data:Box<dyn MessageMetaData>,
     index:u32
 }
-struct MSGEntry{
+pub struct MSGEntry{
     name:&'static str,
     publisher:MSGPublisher,
     subscribers:RwLock<Vec<Arc<MSGSubscriber>>>,
@@ -93,7 +93,7 @@ unsafe impl Send for MSGEntry{}
 unsafe impl Sync for MSGEntry{}
 
 impl MSGEntry{
-    fn new<T:MessageMetaData + 'static>(name:&'static str) ->Arc<Self>{
+    pub fn new<T:MessageMetaData + 'static>(name:&'static str) ->Arc<Self>{
         Arc::new_cyclic(|weak|{
             let message = Message{
                 data:unsafe{Box::<T>::new_zeroed().assume_init()},
@@ -110,25 +110,25 @@ impl MSGEntry{
     }
 
     #[inline]
-    fn find(name:&str)->Option<&Arc<Self>>{
+    pub fn find(name:&str)->Option<&Arc<Self>>{
         (*MSG_LIST).get(name)
     }
 }
 
 
 
-static MSG_LIST:LazyLock<HashMap<&str, Arc<MSGEntry>>> = LazyLock::new(|| {
+pub static MSG_LIST:LazyLock<HashMap<&str, Arc<MSGEntry>>> = LazyLock::new(|| {
     let mut map = HashMap::new();
     map
 });
 
 
 #[cfg(test)]
-mod tests{
+pub mod tests{
     use super::*;
 
     #[derive(PartialEq,Debug)]
-    struct GyroMSG{
+    pub struct GyroMSG{
         x:f32,
         y:f32,
         z:f32
@@ -136,7 +136,7 @@ mod tests{
 
     impl MessageMetaData for GyroMSG {}
 
-    fn get_test_gyromsg()->GyroMSG{
+    pub fn get_test_gyromsg()->GyroMSG{
         GyroMSG{
             x:50.0,
             y:50.0,
@@ -144,18 +144,21 @@ mod tests{
         }
     }
 
-    fn add_message_entry<T:MessageMetaData + 'static>(name:&'static str){
-        let list = &(*MSG_LIST) as *const HashMap<&str,Arc<MSGEntry>> as *mut HashMap<&str,Arc<MSGEntry>> ;
+    pub fn add_message_entry<T:MessageMetaData + 'static>(name:&'static str){
+        let list = &(*MSG_LIST) as *const HashMap<&str,Arc<MSGEntry>> as *mut HashMap<&str,Arc<MSGEntry>>;
+
         unsafe{
-            (*list).insert(name, MSGEntry::new::<T>(name));
+            if !(*list).contains_key(name){
+                (*list).insert(name, MSGEntry::new::<T>(name));
+            }
         }
     }
 
     #[test]
     fn test_message_list_add(){
-        assert_eq!(MSG_LIST.len(),0);
-        add_message_entry::<GyroMSG>("gyro");
-        assert_eq!(MSG_LIST.len(),1);
+        let len_old = MSG_LIST.len();
+        add_message_entry::<GyroMSG>("just testing");
+        assert_eq!(MSG_LIST.len(),len_old + 1);
     }
 
 

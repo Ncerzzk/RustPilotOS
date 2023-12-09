@@ -1,6 +1,6 @@
 #![feature(new_uninit)]
 use std::{sync::{Mutex, Condvar, Arc, Weak}, collections::VecDeque, thread::{spawn}, borrow::{Borrow, BorrowMut}, ptr::null_mut, any::Any, mem::MaybeUninit, pin::*, time::{SystemTime, Duration}};
-use crate::pthread::create_phtread;
+use crate::{pthread::create_phtread, msg::MSGSubscriber};
 use crate::hrt::{HRTEntry,HRT_QUEUE};
 use std::boxed::Box;
 
@@ -52,6 +52,17 @@ impl WorkItem{
             workitem: self.clone()
         };
         HRT_QUEUE.add(entry);
+    }
+
+    #[inline(always)]
+    fn msg_subscriber_callback(ptr:*mut usize){
+        unsafe{
+            Arc::from_raw(ptr as *mut Self).schedule();
+        }
+    }
+
+    pub fn bind_msg_subscriber(self:&Arc<Self>,sub:&Arc<MSGSubscriber>){
+        sub.register_callback(Self::msg_subscriber_callback, Arc::into_raw(self.clone()) as *mut usize);
     }
 }
 
@@ -208,5 +219,26 @@ pub mod tests{
         assert_eq!(gps.finish,false);
         std::thread::sleep(Duration::from_millis(700));  
         assert_eq!(gps.finish,true); 
+    }
+
+    use crate::msg::{tests::*, MSG_LIST, MSGPublisher};
+    #[test]
+    fn test_workitem_bind_message(){
+        let wq = WorkQueue::new(2048,10,false);
+
+        let gps = GPS::new(&wq); 
+
+        add_message_entry::<GyroMSG>("gyro");
+
+        let publisher = MSGPublisher::new("gyro");
+        let subscriber = MSGSubscriber::new("gyro");
+
+        gps.item.bind_msg_subscriber(&subscriber);
+
+        let test_data = get_test_gyromsg();
+        publisher.publish(&test_data);
+
+        std::thread::sleep(Duration::from_secs(1));
+        assert_eq!(gps.finish,true);
     }
 }
