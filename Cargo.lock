@@ -11,9 +11,10 @@ checksum = "784a4df722dc6267a04af36895398f59d21d07dce47232adf31ec0ff2fa45e67"
 [[package]]
 name = "libc"
 version = "0.2.150"
+source = "git+https://github.com/rust-lang/libc.git#497ac428bc010b5db9682ecf94cd567b31d53e5c"
 
 [[package]]
-name = "rust_flight"
+name = "rpos"
 version = "0.1.0"
 dependencies = [
  "fdt",
