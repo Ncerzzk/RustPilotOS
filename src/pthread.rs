@@ -20,11 +20,10 @@ pub fn create_phtread(stack_size:u32, priority:i32, f: extern "C" fn(*mut libc::
         libc::pthread_attr_setstacksize(attr_ptr, stack_size as usize);
         libc::pthread_attr_setinheritsched(attr_ptr, libc::PTHREAD_EXPLICIT_SCHED);
         {
-            let x:i32;
             if is_fifo_schedule{
-                x = libc::pthread_attr_setschedpolicy(attr_ptr,libc::SCHED_FIFO);
+                libc::pthread_attr_setschedpolicy(attr_ptr,libc::SCHED_FIFO);
             }else{
-                x = libc::pthread_attr_setschedpolicy(attr_ptr,libc::SCHED_OTHER); 
+                libc::pthread_attr_setschedpolicy(attr_ptr,libc::SCHED_OTHER); 
             }
         }
 

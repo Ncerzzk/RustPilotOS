@@ -1,5 +1,5 @@
 
-use std::{sync::{LazyLock, RwLock, Arc, Weak, Mutex}, collections::HashMap, mem::{self, MaybeUninit}};
+use std::{sync::{LazyLock, RwLock, Arc, Weak}, collections::HashMap, mem::{MaybeUninit}};
 
 pub struct MSGPublisher{
     parent:Weak<MSGEntry>
@@ -83,7 +83,7 @@ pub struct Message{
     index:u32
 }
 pub struct MSGEntry{
-    name:&'static str,
+    pub name:&'static str,
     publisher:MSGPublisher,
     subscribers:RwLock<Vec<Arc<MSGSubscriber>>>,
     msg:RwLock<Message>
@@ -118,7 +118,7 @@ impl MSGEntry{
 
 
 pub static MSG_LIST:LazyLock<HashMap<&str, Arc<MSGEntry>>> = LazyLock::new(|| {
-    let mut map = HashMap::new();
+    let map = HashMap::new();
     map
 });
 

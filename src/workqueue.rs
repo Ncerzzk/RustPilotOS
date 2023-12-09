@@ -1,8 +1,6 @@
-#![feature(new_uninit)]
-use std::{sync::{Mutex, Condvar, Arc, Weak}, collections::VecDeque, thread::{spawn}, borrow::{Borrow, BorrowMut}, ptr::null_mut, any::Any, mem::MaybeUninit, pin::*, time::{SystemTime, Duration}};
+use std::{sync::{Mutex, Condvar, Arc, Weak}, collections::VecDeque, ptr::null_mut, any::Any, time::{SystemTime, Duration}};
 use crate::{pthread::create_phtread, msg::MSGSubscriber};
 use crate::hrt::{HRTEntry,HRT_QUEUE};
-use std::boxed::Box;
 
 
 pub trait Callable {
@@ -67,7 +65,7 @@ impl WorkItem{
 }
 
 pub struct WorkQueue{
-    priority:i32,
+    pub priority:i32,
     list:Mutex<VecDeque<Arc<WorkItem>>>,
     signal:Condvar,
     ready_exit:Mutex<bool>,

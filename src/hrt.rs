@@ -20,7 +20,7 @@ pub struct HRTQueue{
 const DURATION_1_MS:Duration = Duration::from_millis(1);
 
 #[allow(unreachable_code)] 
-extern "C" fn HRTQueue_run(ptr:*mut libc::c_void)-> *mut libc::c_void{
+extern "C" fn hrtqueue_run(ptr:*mut libc::c_void)-> *mut libc::c_void{
     let htr_queue = unsafe{&*(ptr as *mut HRTQueue)};
 
     let mut sleep_time = DURATION_1_MS;   // default to sleep 1ms
@@ -67,7 +67,7 @@ impl HRTQueue{
             fifo_scheduled = true;
         }
 
-        let _thread_id = create_phtread(2048, 99, HRTQueue_run, queue_ptr,fifo_scheduled);
+        let _thread_id = create_phtread(2048, 99, hrtqueue_run, queue_ptr,fifo_scheduled);
         queue.thread_id = _thread_id;
         
         unsafe{
