@@ -79,13 +79,13 @@ mod tests{
         let ptr = (&mut ret as *mut u128) as *mut libc::c_void;
 
         unsafe{
-            libc::signal(libc::SIGCONT,signal_handler as libc::sighandler_t);
+            libc::signal(libc::SIGUSR1,signal_handler as libc::sighandler_t);
         }
         let thread = create_phtread(2048, 1, sleep_func, ptr,false);
 
         nanosleep(499999999); // sleep to make sure the pthread has get into sleep
         unsafe{
-            pthread_kill(thread, libc::SIGCONT);
+            pthread_kill(thread, libc::SIGUSR1);
             pthread_join(thread, std::ptr::null_mut());
         }
         assert_ne!(ret,0);
