@@ -2,6 +2,9 @@ use std::{sync::{Mutex, Arc,LazyLock},boxed::Box, collections::VecDeque, time::{
 
 use crate::{workqueue::*, pthread::*};
 
+#[cfg(feature="lock_step_enabled")]
+use crate::{lock_step::lock_step_nanosleep};
+
 pub static HRT_QUEUE: LazyLock<Box<HRTQueue>> = LazyLock::new(|| {
     let m = HRTQueue::new();
     m
@@ -44,7 +47,11 @@ extern "C" fn hrtqueue_run(ptr:*mut libc::c_void)-> *mut libc::c_void{
         }
 
         // lock is released here, so other thread could do some adding
+        #[cfg(not(feature="lock_step_enabled"))]
         nanosleep(sleep_time.as_nanos() as i64);
+
+        #[cfg(feature="lock_step_enabled")]
+        lock_step_nanosleep(sleep_time.as_nanos() as i64);
     } 
     std::ptr::null_mut()
 }
