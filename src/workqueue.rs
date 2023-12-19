@@ -1,4 +1,4 @@
-use std::{sync::{Mutex, Condvar, Arc, Weak, LazyLock,RwLock}, collections::{VecDeque, HashMap}, ptr::null_mut, any::Any, time::{SystemTime, Duration}};
+use std::{sync::{Mutex, Condvar, Arc, Weak, LazyLock,RwLock}, collections::{VecDeque, HashMap}, ptr::null_mut, any::Any, time::{SystemTime, Duration}, hash::Hash};
 use crate::{pthread::create_phtread, msg::MSGSubscriber};
 use crate::hrt::{HRTEntry,HRT_QUEUE};
 
@@ -22,19 +22,22 @@ pub struct WorkItem{
 unsafe impl Send for WorkItem{}
 unsafe impl Sync for WorkItem{}
 impl WorkItem{
-    pub fn new<'a>(wq:&Arc<WorkQueue>,parent:* mut dyn Any, func:fn(* mut libc::c_void)) -> Arc<WorkItem>{
-        Arc::new(
+    pub fn new<'a>(wq:&Arc<WorkQueue>,name:&'static str,parent:* mut dyn Any, func:fn(* mut libc::c_void)) -> Arc<WorkItem>{
+        let x= Arc::new(
             WorkItem{
                 queue:Arc::downgrade(wq),
                 func,
                 parent,
                 last_call_time:SystemTime::now()
             }
-        )
+        );
+
+        wq.add_child_workitem(name,Arc::clone(&x));
+        x
     }
 
     pub fn schedule(self:&Arc<Self>){  
-        self.queue.upgrade().unwrap().add(self.clone())
+        self.queue.upgrade().unwrap().add_to_worker_list(self.clone())
     }
 
     pub fn schedule_after(self:&Arc<Self>,us:u64){
@@ -74,7 +77,8 @@ pub struct WorkQueue{
     list:Mutex<VecDeque<Arc<WorkItem>>>,
     signal:Condvar,
     ready_exit:Mutex<bool>,
-    thread_id:libc::pthread_t
+    thread_id:libc::pthread_t,
+    child_items:RwLock<HashMap<&'static str,Arc<WorkItem>>>
 }
 
 extern "C" fn workqueue_thread_handler(ptr: *mut libc::c_void) -> *mut libc::c_void{
@@ -92,7 +96,8 @@ impl WorkQueue{
             list:Mutex::new(VecDeque::new()),
             signal:Condvar::new(),
             ready_exit:Mutex::new(false),
-            thread_id:0
+            thread_id:0,
+            child_items:RwLock::new(HashMap::new())
         };
         let x = Arc::new_cyclic(|weak|{
             let _thread_id = create_phtread(stack_size, priority, workqueue_thread_handler,  weak.as_ptr() as *mut libc::c_void,is_fifo_schedule); 
@@ -146,10 +151,15 @@ impl WorkQueue{
         }
     }
 
-    pub fn add(&self, item:Arc<WorkItem>){
+    pub fn add_to_worker_list(&self, item:Arc<WorkItem>){
         
         self.list.lock().unwrap().push_back(item);
         self.signal.notify_one();
+    }
+
+    pub fn add_child_workitem(&self,name:&'static str, item:Arc<WorkItem>){
+        let mut list = self.child_items.write().unwrap();
+        list.insert(name, item);
     }
 
     pub fn exit(&self){
@@ -183,7 +193,7 @@ pub mod tests{
             let gps= Arc::new_cyclic(
                 |gps_weak|{
 
-                    let item = WorkItem::new(wq,gps_weak.as_ptr() as *mut GPS,GPS::run);
+                    let item = WorkItem::new(wq,"gps",gps_weak.as_ptr() as *mut GPS,GPS::run);
                     GPS{
                         item,
                         finish:false
