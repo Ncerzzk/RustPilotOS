@@ -121,7 +121,7 @@ mod tests{
     #[test]
     fn test_hrt_basic(){
         let queue = Box::leak(HRTQueue::new());
-        let wq = WorkQueue::new(2048,1,false);
+        let wq = WorkQueue::new("hrt",2048,1,false);
         let gps = GPS::new(&wq);
 
         let entry = HRTEntry{
@@ -153,7 +153,7 @@ mod tests{
     #[test]
     fn test_multi_works_order(){
         let queue = Box::leak(HRTQueue::new());
-        let wq = WorkQueue::new(2048,1,false); 
+        let wq = WorkQueue::new("multi",2048,1,false); 
 
         let gps1 = GPS::new(&wq);
         let gps2 = GPS::new(&wq);

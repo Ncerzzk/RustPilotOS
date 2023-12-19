@@ -1,7 +1,12 @@
-use std::{sync::{Mutex, Condvar, Arc, Weak}, collections::VecDeque, ptr::null_mut, any::Any, time::{SystemTime, Duration}};
+use std::{sync::{Mutex, Condvar, Arc, Weak, LazyLock,RwLock}, collections::{VecDeque, HashMap}, ptr::null_mut, any::Any, time::{SystemTime, Duration}};
 use crate::{pthread::create_phtread, msg::MSGSubscriber};
 use crate::hrt::{HRTEntry,HRT_QUEUE};
 
+
+pub static WORKQUEUE_LIST:LazyLock<RwLock<HashMap<&str,Arc<WorkQueue>>>> = LazyLock::new(||{
+    let m = HashMap::new();
+    RwLock::new(m)
+});
 
 pub trait Callable {
     fn call(&mut self);
@@ -81,7 +86,7 @@ extern "C" fn workqueue_thread_handler(ptr: *mut libc::c_void) -> *mut libc::c_v
 }
 
 impl WorkQueue{
-    pub fn new(stack_size:u32,priority:i32,is_fifo_schedule:bool) -> Arc<WorkQueue>{
+    pub fn new(name:&'static str,stack_size:u32,priority:i32,is_fifo_schedule:bool) -> Arc<WorkQueue>{
         let mut wq: WorkQueue<> = WorkQueue{
             priority,
             list:Mutex::new(VecDeque::new()),
@@ -95,7 +100,14 @@ impl WorkQueue{
             wq
         });
 
+        WORKQUEUE_LIST.write().unwrap().insert(name, Arc::clone(&x));
         x
+    }
+
+    pub fn find(name:&'static str)->Arc<WorkQueue>{
+        let list = WORKQUEUE_LIST.read().unwrap();
+        let x = list.get(name).unwrap();
+        x.clone()
     }
 
     pub fn run(&self){
@@ -184,7 +196,7 @@ pub mod tests{
 
     #[test]
     fn test_workqueue_basic(){
-        let wq = WorkQueue::new(2048,10,false);
+        let wq = WorkQueue::new("basic",2048,10,false);
 
         let gps = GPS::new(&wq);
         gps.item.schedule();
@@ -194,7 +206,7 @@ pub mod tests{
 
     #[test]
     fn test_workitem_schedule_after(){
-        let wq = WorkQueue::new(2048,10,false);
+        let wq = WorkQueue::new("schedule_after",2048,10,false);
 
         let gps = GPS::new(&wq);
         gps.item.schedule_after(3 * 1000 * 1000);
@@ -206,7 +218,7 @@ pub mod tests{
 
     #[test]
     fn test_workitem_schedule_until(){
-        let wq = WorkQueue::new(2048,10,false);
+        let wq = WorkQueue::new("schedule_until",2048,10,false);
 
         let gps = GPS::new(&wq);
         // at present, the last_call_time of gps.item is SystemTime::now()
@@ -222,7 +234,7 @@ pub mod tests{
     use crate::msg::{tests::*, MSG_LIST, MSGPublisher};
     #[test]
     fn test_workitem_bind_message(){
-        let wq = WorkQueue::new(2048,10,false);
+        let wq = WorkQueue::new("msg_bind",2048,10,false);
 
         let gps = GPS::new(&wq); 
 
