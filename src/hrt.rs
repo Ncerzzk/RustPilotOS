@@ -1,6 +1,6 @@
-use std::{sync::{Mutex, Arc,LazyLock},boxed::Box, collections::VecDeque, time::{Duration, SystemTime}};
+use std::{sync::{Mutex, Arc,LazyLock},boxed::Box, collections::VecDeque, ops::{Sub, Add}};
 
-use crate::{workqueue::*, pthread::*};
+use crate::{workqueue::*, pthread::*, lock_step::LOCK_STEP_CURRENT_TIME};
 
 #[cfg(feature="lock_step_enabled")]
 use crate::{lock_step::lock_step_nanosleep};
@@ -10,8 +10,97 @@ pub static HRT_QUEUE: LazyLock<Box<HRTQueue>> = LazyLock::new(|| {
     m
 });
 
+#[derive(PartialEq, Clone, Copy,Debug)]
+pub struct Timespec{
+    sec:i64,
+    nsec:i64
+}
+
+impl PartialOrd for Timespec{
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        let sub = Self{
+            sec:self.sec - other.sec,
+            nsec:self.nsec - other.nsec
+        };
+
+        (sub.sec * 1000 * 1000 * 1000 + sub.nsec).partial_cmp(&0)
+    }
+}
+
+impl From<libc::timespec> for Timespec{
+    fn from(value: libc::timespec) -> Self {
+        Self { sec: value.tv_sec, nsec: value.tv_nsec }
+    }
+}
+
+impl Sub for Timespec{
+    type Output = Self;
+    fn sub(self, rhs: Self) -> Self{
+        Self{
+            sec:self.sec - rhs.sec,
+            nsec:self.nsec - rhs.nsec
+        }
+    }
+}
+
+impl Sub<libc::timespec> for Timespec{
+    type Output = Timespec;
+
+    fn sub(self, rhs: libc::timespec) -> Self::Output {
+        Self{
+            sec:self.sec - rhs.tv_sec,
+            nsec:self.nsec - rhs.tv_nsec
+        }
+    }
+}
+
+impl Add<i64> for Timespec{
+    type Output = Self;
+    fn add(self, rhs: i64) -> Self::Output {
+        Self{
+            sec:self.sec,
+            nsec:self.nsec + rhs
+        }
+    }
+}
+
+impl Add for Timespec{
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        let ret = Self{
+            sec:self.sec + rhs.sec,
+            nsec:self.nsec + rhs.nsec
+        };
+        ret
+    }
+}
+
+impl Timespec{
+    fn to_nano(&self)->i64{
+        self.sec * 1000 * 1000 * 1000 + self.nsec
+    }
+
+    fn from_secs(sec:i64) ->Self{
+        Self { sec, nsec:0}
+    }
+}
+
+pub fn get_time_now()->Timespec{
+    let mut tp = libc::timespec{ tv_sec: 0, tv_nsec: 0};
+
+    if cfg!(feature="lock_step_enabled"){
+        tp = *LOCK_STEP_CURRENT_TIME.lock().unwrap(); 
+    }else{
+        unsafe{
+            libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut tp as *mut libc::timespec);
+        }
+    }
+    Timespec::from(tp)
+}
+
 pub struct HRTEntry{
-    pub deadline:SystemTime,
+    pub deadline:Timespec,
     pub workitem:Arc<WorkItem>
 }
 
@@ -20,7 +109,7 @@ pub struct HRTQueue{
     thread_id:libc::pthread_t
 }
 
-const DURATION_1_MS:Duration = Duration::from_millis(1);
+const DURATION_1_MS:i64 = 1000 * 1000;
 
 #[allow(unreachable_code)] 
 extern "C" fn hrtqueue_run(ptr:*mut libc::c_void)-> *mut libc::c_void{
@@ -32,12 +121,12 @@ extern "C" fn hrtqueue_run(ptr:*mut libc::c_void)-> *mut libc::c_void{
         loop{
             let mut unlock_list = htr_queue.list.lock().unwrap();
             if let Some(x) = unlock_list.front(){
-                let now = SystemTime::now();
+                let now = get_time_now();
                 if now >= x.deadline{
                     x.workitem.schedule();
                     unlock_list.pop_front();
                 }else{
-                    let escaped = x.deadline.duration_since(now).unwrap();
+                    let escaped =(x.deadline - now).to_nano();
                     sleep_time = if escaped >  DURATION_1_MS { DURATION_1_MS } else {escaped};
                     break;
                 }
@@ -48,10 +137,10 @@ extern "C" fn hrtqueue_run(ptr:*mut libc::c_void)-> *mut libc::c_void{
 
         // lock is released here, so other thread could do some adding
         #[cfg(not(feature="lock_step_enabled"))]
-        nanosleep(sleep_time.as_nanos() as i64);
+        nanosleep(sleep_time);
 
         #[cfg(feature="lock_step_enabled")]
-        lock_step_nanosleep(sleep_time.as_nanos() as i64);
+        lock_step_nanosleep(sleep_time);
     } 
     std::ptr::null_mut()
 }
@@ -108,6 +197,8 @@ impl HRTQueue{
 
 #[cfg(test)]
 mod tests{
+    use std::time::Duration;
+
     use super::*;
     use crate::workqueue::tests::GPS;
 
@@ -125,7 +216,7 @@ mod tests{
         let gps = GPS::new(&wq);
 
         let entry = HRTEntry{
-            deadline: SystemTime::now(),
+            deadline: get_time_now(),
             workitem: gps.item.clone()
         };
         queue.add(entry);
@@ -139,7 +230,7 @@ mod tests{
         assert_eq!(gps.finish,false);
 
         let entry = HRTEntry{
-            deadline: SystemTime::now() + Duration::from_secs(5000),
+            deadline: get_time_now() + Timespec::from_secs(5000),
             workitem: gps.item.clone() 
         };
 
@@ -158,8 +249,8 @@ mod tests{
         let gps1 = GPS::new(&wq);
         let gps2 = GPS::new(&wq);
 
-        queue.add(HRTEntry { deadline: SystemTime::now() + Duration::from_secs(3), workitem: gps1.item.clone() });
-        queue.add(HRTEntry { deadline: SystemTime::now() + Duration::from_secs(5), workitem: gps2.item.clone() });
+        queue.add(HRTEntry { deadline: get_time_now() + Timespec::from_secs(3), workitem: gps1.item.clone() });
+        queue.add(HRTEntry { deadline: get_time_now() + Timespec::from_secs(5), workitem: gps2.item.clone() });
 
         std::thread::sleep(Duration::from_secs(1));
         assert_eq!(gps1.finish,false);

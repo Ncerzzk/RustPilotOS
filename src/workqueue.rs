@@ -1,5 +1,5 @@
 use std::{sync::{Mutex, Condvar, Arc, Weak, LazyLock,RwLock}, collections::{VecDeque, HashMap}, ptr::null_mut, any::Any, time::{SystemTime, Duration}, hash::Hash};
-use crate::{pthread::create_phtread, msg::MSGSubscriber};
+use crate::{pthread::create_phtread, msg::MSGSubscriber, hrt::{get_time_now, Timespec}};
 use crate::hrt::{HRTEntry,HRT_QUEUE};
 
 
@@ -16,7 +16,7 @@ pub struct WorkItem{
     queue:Weak<WorkQueue>,
     func:fn(* mut libc::c_void),
     parent:* mut dyn Any,
-    last_call_time:SystemTime
+    last_call_time:Timespec
 }
 
 unsafe impl Send for WorkItem{}
@@ -28,7 +28,7 @@ impl WorkItem{
                 queue:Arc::downgrade(wq),
                 func,
                 parent,
-                last_call_time:SystemTime::now()
+                last_call_time:get_time_now()
             }
         );
 
@@ -40,9 +40,9 @@ impl WorkItem{
         self.queue.upgrade().unwrap().add_to_worker_list(self.clone())
     }
 
-    pub fn schedule_after(self:&Arc<Self>,us:u64){
+    pub fn schedule_after(self:&Arc<Self>,us:i64){
         let entry = HRTEntry{ 
-            deadline: SystemTime::now() + Duration::from_micros(us),
+            deadline: get_time_now() + us * 1000,
             workitem: self.clone()
         };
         HRT_QUEUE.add(entry);
@@ -52,9 +52,9 @@ impl WorkItem{
         schedule_until
         This method should be called at workqueue thread.
      */
-    pub fn schedule_until(self:&Arc<Self>,us:u64){
+    pub fn schedule_until(self:&Arc<Self>,us:i64){
         let entry = HRTEntry{ 
-            deadline: self.last_call_time + Duration::from_micros(us),
+            deadline: self.last_call_time + us * 1000,
             workitem: self.clone()
         };
         HRT_QUEUE.add(entry);
@@ -134,7 +134,7 @@ impl WorkQueue{
                 if let Some(item) = head {
                     let ptr = Arc::as_ptr(&item) as *mut WorkItem;
                     unsafe{
-                        (*ptr).last_call_time = SystemTime::now();
+                        (*ptr).last_call_time = get_time_now();
                         // update the call time 
                         // the last_call_time MUST only be updated here, and be used in the workqueue thread
                         // if so, we can directly update it in the unsafe block rather than using a RwLock.

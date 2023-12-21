@@ -1,4 +1,4 @@
-use std::{sync::{LazyLock, Mutex, Condvar, atomic::{AtomicBool, Ordering}}};
+use std::{sync::{LazyLock, Mutex, Condvar, atomic::{AtomicBool, Ordering}, Once}, os::unix::thread};
 
 pub static LOCK_STEP_CURRENT_TIME:LazyLock<Mutex<libc::timespec>> = LazyLock::<Mutex<libc::timespec>>::new(||{
     Mutex::new(libc::timespec{tv_sec:0, tv_nsec:0})
@@ -16,14 +16,34 @@ pub fn lock_step_update_time(new_time:libc::timespec){
     *LOCK_STEP_CURRENT_TIME.lock().unwrap() = new_time;
 }
 
+static INIT_TEST_THREAD:Once = Once::new();
 pub fn lock_step_nanosleep(ns:i64)->i64{
     let mut nsec:i64;
     let mut sec:i64;
 
+    #[cfg(all(test,feature="lock_step_enabled"))]
+    INIT_TEST_THREAD.call_once(||{
+        std::thread::spawn(||{
+            loop {
+                let time = std::time::SystemTime::now();
+                let dur = time.duration_since(std::time::SystemTime::UNIX_EPOCH).unwrap();
+                let time_spec = libc::timespec{
+                    tv_sec: dur.as_secs() as i64,
+                    tv_nsec: (dur.as_nanos() % 999999999 ) as i64
+                };
+                lock_step_update_time(time_spec);
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+        });
+        std::thread::sleep(std::time::Duration::from_secs(1));
+    });
+
     {
         let current = LOCK_STEP_CURRENT_TIME.lock().unwrap();
+        println!("now:{},{},{}",current.tv_sec,current.tv_nsec,ns);
         nsec = ns + current.tv_nsec;
         sec = current.tv_sec;
+
     }
 
     if nsec > 999999999{
@@ -35,6 +55,8 @@ pub fn lock_step_nanosleep(ns:i64)->i64{
         tv_sec:sec,
         tv_nsec:nsec
     };
+
+    println!("deadline:{}:{}",deadline.tv_sec,deadline.tv_nsec);
     let ret = loop{
         let current = LOCK_STEP_CURRENT_TIME.lock().unwrap();
         if current.tv_sec >= deadline.tv_sec && current.tv_nsec > deadline.tv_nsec{
