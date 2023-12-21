@@ -1,7 +1,9 @@
-use std::{sync::{LazyLock, Mutex, Condvar, atomic::{AtomicBool, Ordering}, Once}, os::unix::thread};
+use std::{sync::{LazyLock, Mutex, Condvar, atomic::{AtomicBool, Ordering}, Once}};
+use crate::hrt::Timespec;
 
-pub static LOCK_STEP_CURRENT_TIME:LazyLock<Mutex<libc::timespec>> = LazyLock::<Mutex<libc::timespec>>::new(||{
-    Mutex::new(libc::timespec{tv_sec:0, tv_nsec:0})
+
+pub static LOCK_STEP_CURRENT_TIME:LazyLock<Mutex<Timespec>> = LazyLock::<Mutex<Timespec>>::new(||{
+    Mutex::new(Timespec{sec:0, nsec:0})
 });
 
 pub static LOCK_STEP_EARLY_WAKEN:LazyLock<AtomicBool> = LazyLock::<AtomicBool>::new(||{
@@ -12,7 +14,7 @@ pub static LOCK_STEP_CONVAR:LazyLock<Condvar> = LazyLock::<Condvar>::new(||{
     Condvar::new()
 });
 
-pub fn lock_step_update_time(new_time:libc::timespec){
+pub fn lock_step_update_time(new_time:Timespec){
     *LOCK_STEP_CURRENT_TIME.lock().unwrap() = new_time;
 }
 
@@ -27,7 +29,7 @@ pub fn lock_step_nanosleep(ns:i64)->i64{
             loop {
                 let time = std::time::SystemTime::now();
                 let dur = time.duration_since(std::time::SystemTime::UNIX_EPOCH).unwrap();
-                let time_spec = libc::timespec{
+                let time_spec = Timespec{
                     tv_sec: dur.as_secs() as i64,
                     tv_nsec: (dur.as_nanos() % 999999999 ) as i64
                 };
@@ -38,34 +40,23 @@ pub fn lock_step_nanosleep(ns:i64)->i64{
         std::thread::sleep(std::time::Duration::from_secs(1));
     });
 
+    let mut current;
     {
-        let current = LOCK_STEP_CURRENT_TIME.lock().unwrap();
-        println!("now:{},{},{}",current.tv_sec,current.tv_nsec,ns);
-        nsec = ns + current.tv_nsec;
-        sec = current.tv_sec;
-
+        current = *LOCK_STEP_CURRENT_TIME.lock().unwrap();
     }
 
-    if nsec > 999999999{
-        sec += 1;
-        nsec -= 999999999;
-    }
+    let deadline = current + ns;
 
-    let deadline = libc::timespec{
-        tv_sec:sec,
-        tv_nsec:nsec
-    };
-
-    println!("deadline:{}:{}",deadline.tv_sec,deadline.tv_nsec);
     let ret = loop{
-        let current = LOCK_STEP_CURRENT_TIME.lock().unwrap();
-        if current.tv_sec >= deadline.tv_sec && current.tv_nsec > deadline.tv_nsec{
+        let current_guard: std::sync::MutexGuard<'_, Timespec> = LOCK_STEP_CURRENT_TIME.lock().unwrap();
+        let current = *current_guard;
+        if current >= deadline{
             break 0
         }else if LOCK_STEP_EARLY_WAKEN.fetch_nand(true, Ordering::SeqCst){
-            break {if deadline.tv_nsec - current.tv_nsec < 0 {deadline.tv_nsec - current.tv_nsec + 999999999} else {deadline.tv_nsec - current.tv_nsec}}
+            break { (deadline - current).to_nano() }
         }
         println!("hello?");
-        let _= LOCK_STEP_CONVAR.wait(current);
+        let _= LOCK_STEP_CONVAR.wait(current_guard);
         println!("after condvar!");
     };
 

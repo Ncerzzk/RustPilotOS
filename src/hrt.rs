@@ -12,8 +12,8 @@ pub static HRT_QUEUE: LazyLock<Box<HRTQueue>> = LazyLock::new(|| {
 
 #[derive(PartialEq, Clone, Copy,Debug)]
 pub struct Timespec{
-    sec:i64,
-    nsec:i64
+    pub sec:i64,
+    pub nsec:i64
 }
 
 impl PartialOrd for Timespec{
@@ -77,11 +77,11 @@ impl Add for Timespec{
 }
 
 impl Timespec{
-    fn to_nano(&self)->i64{
+    pub fn to_nano(&self)->i64{
         self.sec * 1000 * 1000 * 1000 + self.nsec
     }
 
-    fn from_secs(sec:i64) ->Self{
+    pub fn from_secs(sec:i64) ->Self{
         Self { sec, nsec:0}
     }
 }
@@ -90,13 +90,13 @@ pub fn get_time_now()->Timespec{
     let mut tp = libc::timespec{ tv_sec: 0, tv_nsec: 0};
 
     if cfg!(feature="lock_step_enabled"){
-        tp = *LOCK_STEP_CURRENT_TIME.lock().unwrap(); 
+        *LOCK_STEP_CURRENT_TIME.lock().unwrap()
     }else{
         unsafe{
             libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut tp as *mut libc::timespec);
         }
+        Timespec::from(tp)
     }
-    Timespec::from(tp)
 }
 
 pub struct HRTEntry{
