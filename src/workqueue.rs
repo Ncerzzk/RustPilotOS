@@ -171,6 +171,7 @@ impl WorkQueue{
 #[cfg(test)]
 pub mod tests{
     use super::*;
+    use crate::lock_step::lock_step_init_test_thread;
 
     pub struct GPS{
         pub item:Arc<WorkItem>,
@@ -228,6 +229,8 @@ pub mod tests{
 
     #[test]
     fn test_workitem_schedule_until(){
+        #[cfg(feature="lock_step_enabled")]
+        lock_step_init_test_thread();
         let wq = WorkQueue::new("schedule_until",2048,10,false);
 
         let gps = GPS::new(&wq);

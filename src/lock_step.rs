@@ -1,5 +1,5 @@
 use std::{sync::{LazyLock, Mutex, Condvar, atomic::{AtomicBool, Ordering}, Once}};
-use crate::hrt::Timespec;
+use crate::hrt::{Timespec, get_time_now};
 
 
 pub static LOCK_STEP_CURRENT_TIME:LazyLock<Mutex<Timespec>> = LazyLock::<Mutex<Timespec>>::new(||{
@@ -16,31 +16,31 @@ pub static LOCK_STEP_CONVAR:LazyLock<Condvar> = LazyLock::<Condvar>::new(||{
 
 pub fn lock_step_update_time(new_time:Timespec){
     *LOCK_STEP_CURRENT_TIME.lock().unwrap() = new_time;
+    LOCK_STEP_CONVAR.notify_one();
 }
 
+#[cfg(test)]
 static INIT_TEST_THREAD:Once = Once::new();
+#[cfg(test)]
+pub fn lock_step_init_test_thread(){
+    INIT_TEST_THREAD.call_once(||{
+        std::thread::spawn(||{
+            println!("fake lockstep clock init!");
+            loop {
+                let time_spec = get_time_now()+ 100*1000*1000;
+                println!("now:{:?}",time_spec);
+                lock_step_update_time(time_spec );
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+        });   
+    });
+}
+
 pub fn lock_step_nanosleep(ns:i64)->i64{
     let mut nsec:i64;
     let mut sec:i64;
 
-    #[cfg(all(test,feature="lock_step_enabled"))]
-    INIT_TEST_THREAD.call_once(||{
-        std::thread::spawn(||{
-            loop {
-                let time = std::time::SystemTime::now();
-                let dur = time.duration_since(std::time::SystemTime::UNIX_EPOCH).unwrap();
-                let time_spec = Timespec{
-                    tv_sec: dur.as_secs() as i64,
-                    tv_nsec: (dur.as_nanos() % 999999999 ) as i64
-                };
-                lock_step_update_time(time_spec);
-                std::thread::sleep(std::time::Duration::from_millis(100));
-            }
-        });
-        std::thread::sleep(std::time::Duration::from_secs(1));
-    });
-
-    let mut current;
+    let current;
     {
         current = *LOCK_STEP_CURRENT_TIME.lock().unwrap();
     }
@@ -55,12 +55,8 @@ pub fn lock_step_nanosleep(ns:i64)->i64{
         }else if LOCK_STEP_EARLY_WAKEN.fetch_nand(true, Ordering::SeqCst){
             break { (deadline - current).to_nano() }
         }
-        println!("hello?");
         let _= LOCK_STEP_CONVAR.wait(current_guard);
-        println!("after condvar!");
     };
-
-    println!("out!");
     ret
 }
 
