@@ -1,14 +1,14 @@
-use std::{sync::{LazyLock, RwLock, Arc}, collections::HashMap, rc::Rc};
+use std::{sync::{LazyLock, RwLock, Arc}, collections::HashMap};
 
 
 
 unsafe impl Send for Module{}
 unsafe impl Sync for Module{}
 
-type SubCallbackBox = Box<dyn Fn(u32,*const usize)>;
+pub type SubCallbackBox = Box<dyn Fn(u32,*const &str)>;
 pub struct Module{
     name:&'static str,
-    init_func:Box<dyn Fn(u32,*const usize) + 'static>
+    init_func:Box<dyn Fn(u32,*const &str) + 'static>
 }
 
 static MODULE_LIST:LazyLock<RwLock<HashMap<&str, Arc<Module>>>> = LazyLock::new(|| {
@@ -17,7 +17,7 @@ static MODULE_LIST:LazyLock<RwLock<HashMap<&str, Arc<Module>>>> = LazyLock::new(
 });
 
 impl Module{
-    pub fn register<T>(name:&'static str,func:T) ->() where T:Fn(u32,*const usize) + 'static{
+    pub fn register<T>(name:&'static str,func:T) ->() where T:Fn(u32,*const &str) + 'static{
         let m = Module{
             name,
             init_func:Box::new(func)
@@ -29,6 +29,10 @@ impl Module{
         MODULE_LIST.read().unwrap().get(name).unwrap().clone()
     }
 
+    pub fn execute(self:&Arc<Self>, argc:u32,argv:*const &str){
+        let p = &(self.init_func);
+        p(argc,argv);        
+    }
 }
 
 
@@ -37,7 +41,7 @@ mod tests{
     use super::*;
     use ctor::ctor;
 
-    fn test_func(argc:u32,argv:*const usize){
+    fn test_func(argc:u32,argv:*const &str){
         println!("hello,this is test function!");
         assert_eq!(argc,1);
     }
@@ -50,8 +54,7 @@ mod tests{
     #[test]
     fn test_module_register(){
         assert_eq!(MODULE_LIST.read().unwrap().len(),1);
-        let p = &(Module::get_module("test").init_func);
-        p(1,std::ptr::null());
+        Module::get_module("test").execute(1, std::ptr::null());
     }
 
 }

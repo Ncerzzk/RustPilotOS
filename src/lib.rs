@@ -7,3 +7,4 @@ pub mod msg;
 pub mod lock_step;
 pub mod module;
 
+pub use ctor;
