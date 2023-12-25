@@ -1,4 +1,4 @@
-use std::{sync::{Mutex, Condvar, Arc, Weak, LazyLock,RwLock}, collections::{VecDeque, HashMap}, ptr::null_mut, any::Any, time::{SystemTime, Duration}, hash::Hash};
+use std::{sync::{Mutex, Condvar, Arc, Weak, LazyLock,RwLock}, collections::{VecDeque, HashMap}, ptr::null_mut, any::Any};
 use crate::{pthread::create_phtread, msg::MSGSubscriber, hrt::{get_time_now, Timespec}};
 use crate::hrt::{HRTEntry,HRT_QUEUE};
 
@@ -172,6 +172,7 @@ impl WorkQueue{
 pub mod tests{
     use super::*;
     use crate::lock_step::lock_step_init_test_thread;
+    use core::time::Duration;
 
     pub struct GPS{
         pub item:Arc<WorkItem>,

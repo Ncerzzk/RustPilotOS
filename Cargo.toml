@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 libc = {git = "https://github.com/rust-lang/libc.git"}
 fdt = "0.1.5"
+ctor = "0.2.6"
 
 [features]
 lock_step_enabled = []
