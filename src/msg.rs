@@ -20,10 +20,23 @@ impl MSGPublisher{
             msg.index  += 1;
         }
 
-        let sub_list = entry.subscribers.read().unwrap();
-        for i in sub_list.iter(){
-            if let Some(func) = i.callback{
-                func(i.callback_arg.unwrap())
+        let mut sub_list = entry.subscribers.write().unwrap();
+        let mut remove_list = Vec::new();
+        for (index,i) in sub_list.iter().enumerate(){
+            if let Some(subscriber) = i.upgrade(){
+                if let Some(func) = subscriber.callback{
+                    func(subscriber.callback_arg.unwrap())
+                }
+            }else {
+                // weak upgrade failed
+                remove_list.push(index);
+                
+            }
+        }
+
+        if remove_list.len() > 0 {
+            for i in remove_list.iter().rev(){
+                sub_list.swap_remove(*i);
             }
         }
     }
@@ -39,13 +52,15 @@ pub struct MSGSubscriber{
 impl MSGSubscriber{
     pub fn new(name:&'static str)-> Arc<Self>{
         let entry = MSGEntry::find(name).unwrap();
+        let mut subscribers = entry.subscribers.write().unwrap();
+        
         let sub = Arc::new(MSGSubscriber{
             parent:Arc::downgrade(entry),
             last_index:0,
             callback:Option::None,
             callback_arg:Option::None
         });
-        entry.subscribers.write().unwrap().push(sub.clone());
+        subscribers.push(Arc::downgrade(&sub));
         sub
     }
 
@@ -85,7 +100,7 @@ pub struct Message{
 pub struct MSGEntry{
     pub name:&'static str,
     publisher:MSGPublisher,
-    subscribers:RwLock<Vec<Arc<MSGSubscriber>>>,
+    subscribers:RwLock<Vec<Weak<MSGSubscriber>>>,
     msg:RwLock<Message>
 }
 
@@ -191,6 +206,22 @@ pub mod tests{
         assert_eq!(suber.check_update(),true);
         assert_eq!(suber.get_latest::<GyroMSG>(),test_data);
         assert_eq!(num,1);
+    }
+    #[test]
+    fn test_subscriber_drop(){
+        add_message_entry::<GyroMSG>("gyro_tttt");
+
+        let suber1 = MSGSubscriber::new("gyro_tttt"); 
+        {
+            let suber2 = MSGSubscriber::new("gyro_tttt");
+            assert_eq!(MSGEntry::find("gyro_tttt").unwrap().subscribers.read().unwrap().len(),2);
+        }
+
+        let imu = MSGPublisher::new("gyro_tttt");
+        let test_data = get_test_gyromsg();
+        imu.publish(&test_data);
+
+        assert_eq!(MSGEntry::find("gyro_tttt").unwrap().subscribers.read().unwrap().len(),1);        
     }
 
 }
