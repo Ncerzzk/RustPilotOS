@@ -255,7 +255,7 @@ pub mod tests{
         add_message_entry::<GyroMSG>("gyro");
 
         let publisher = MSGPublisher::new("gyro");
-        let subscriber = MSGSubscriber::new("gyro");
+        let subscriber = MSGSubscriber::new("gyro").unwrap();
 
         gps.item.bind_msg_subscriber(&subscriber);
 

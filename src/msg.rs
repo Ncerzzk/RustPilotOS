@@ -50,8 +50,8 @@ pub struct MSGSubscriber{
 }
 
 impl MSGSubscriber{
-    pub fn new(name:&'static str)-> Arc<Self>{
-        let entry = MSGEntry::find(name).unwrap();
+    pub fn new(name:&str)-> Option<Arc<Self>>{
+        let entry = MSGEntry::find(name)?;
         let mut subscribers = entry.subscribers.write().unwrap();
         
         let sub = Arc::new(MSGSubscriber{
@@ -61,7 +61,7 @@ impl MSGSubscriber{
             callback_arg:Option::None
         });
         subscribers.push(Arc::downgrade(&sub));
-        sub
+        Some(sub)
     }
 
     pub fn check_update(self:&Arc::<Self>)->bool{
@@ -187,7 +187,7 @@ pub mod tests{
     fn test_msg_publish_and_subscribe(){
         add_message_entry::<GyroMSG>("gyro");
 
-        let suber = MSGSubscriber::new("gyro");
+        let suber = MSGSubscriber::new("gyro").unwrap();
         let mut num:usize = 0;
         suber.register_callback(test_callback, &mut num as *mut usize);
 
@@ -211,9 +211,9 @@ pub mod tests{
     fn test_subscriber_drop(){
         add_message_entry::<GyroMSG>("gyro_tttt");
 
-        let suber1 = MSGSubscriber::new("gyro_tttt"); 
+        let suber1 = MSGSubscriber::new("gyro_tttt").unwrap(); 
         {
-            let suber2 = MSGSubscriber::new("gyro_tttt");
+            let suber2 = MSGSubscriber::new("gyro_tttt").unwrap();
             assert_eq!(MSGEntry::find("gyro_tttt").unwrap().subscribers.read().unwrap().len(),2);
         }
 
