@@ -1,5 +1,5 @@
 
-use std::{sync::{LazyLock, RwLock, Arc, Weak}, collections::HashMap, mem::{MaybeUninit}};
+use std::{sync::{LazyLock, RwLock, Arc, Weak}, collections::HashMap, mem::{MaybeUninit}, cell::RefCell};
 
 pub struct MSGPublisher{
     parent:Weak<MSGEntry>
@@ -24,7 +24,8 @@ impl MSGPublisher{
         let mut remove_list = Vec::new();
         for (index,i) in sub_list.iter().enumerate(){
             if let Some(subscriber) = i.upgrade(){
-                if let Some(func) = subscriber.callback{
+                if let Some(func) = &subscriber.callback{
+                    let mut func = func.borrow_mut();
                     func(subscriber.callback_arg.unwrap())
                 }
             }else {
@@ -45,9 +46,11 @@ impl MSGPublisher{
 pub struct MSGSubscriber{
     parent:Weak<MSGEntry>,
     last_index:u32,
-    callback:Option<fn (*mut usize)>,
+    callback:Option<RefCell<Box<dyn FnMut(*mut usize) + 'static>>>,
     callback_arg:Option<*mut usize>
 }
+
+pub trait MsgCallback:FnMut(*mut usize) + 'static{}
 
 impl MSGSubscriber{
     pub fn new(name:&str)-> Option<Arc<Self>>{
@@ -82,10 +85,10 @@ impl MSGSubscriber{
         }
     }
 
-    pub fn register_callback(self:&Arc::<Self>,callback:fn (*mut usize),arg:*mut usize){
-        let ptr = self.as_ref() as *const Self as *mut Self;
+    pub fn register_callback<F>(self:&Arc::<Self>,callback:F,arg:*mut usize) where F:FnMut(*mut usize) + 'static{
+        let ptr = self.as_ref() as *const Self as *mut Self; 
         unsafe{ 
-            (*ptr).callback = Option::Some(callback);
+            (*ptr).callback = Option::Some(RefCell::new(Box::new(callback)));
             (*ptr).callback_arg = Option::Some(arg);
         }
     }
