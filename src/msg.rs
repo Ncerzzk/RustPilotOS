@@ -1,5 +1,5 @@
 
-use std::{sync::{LazyLock, RwLock, Arc, Weak}, collections::HashMap, mem::{MaybeUninit}, cell::RefCell};
+use std::{sync::{LazyLock, RwLock, Arc, Weak}, collections::HashMap, mem::{MaybeUninit}, cell::RefCell, io::Write};
 
 pub struct MSGPublisher{
     parent:Weak<MSGEntry>
@@ -49,8 +49,6 @@ pub struct MSGSubscriber{
     callback:Option<RefCell<Box<dyn FnMut(*mut usize) + 'static>>>,
     callback_arg:Option<*mut usize>
 }
-
-pub trait MsgCallback:FnMut(*mut usize) + 'static{}
 
 impl MSGSubscriber{
     pub fn new(name:&str)-> Option<Arc<Self>>{

@@ -1,5 +1,5 @@
 use std::{sync::{Mutex, Condvar, Arc, Weak, LazyLock,RwLock}, collections::{VecDeque, HashMap}, ptr::null_mut, any::Any};
-use crate::{pthread::create_phtread, msg::{MSGSubscriber, MsgCallback}, hrt::{get_time_now, Timespec}};
+use crate::{pthread::create_phtread, msg::{MSGSubscriber}, hrt::{get_time_now, Timespec}};
 use crate::hrt::{HRTEntry,HRT_QUEUE};
 
 
@@ -41,10 +41,7 @@ impl WorkItem{
     }
 
     pub fn schedule_after(self:&Arc<Self>,us:i64){
-        let entry = HRTEntry{ 
-            deadline: get_time_now() + us * 1000,
-            workitem: self.clone()
-        };
+        let entry = HRTEntry::new_with_workitem(get_time_now() + us * 1000,self.clone());
         HRT_QUEUE.add(entry);
     }
 
@@ -53,10 +50,7 @@ impl WorkItem{
         This method should be called at workqueue thread.
      */
     pub fn schedule_until(self:&Arc<Self>,us:i64){
-        let entry = HRTEntry{ 
-            deadline: self.last_call_time + us * 1000,
-            workitem: self.clone()
-        };
+        let entry = HRTEntry::new_with_workitem(self.last_call_time + us * 1000,self.clone());
         HRT_QUEUE.add(entry);
     }
 

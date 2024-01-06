@@ -101,9 +101,23 @@ pub fn get_time_now()->Timespec{
 
 pub struct HRTEntry{
     pub deadline:Timespec,
-    pub workitem:Arc<WorkItem>
+    pub callback:Box<dyn Fn() + 'static>,
 }
+unsafe impl Send for HRTEntry{}
+unsafe impl Sync for HRTEntry{}
 
+impl HRTEntry{
+
+    pub fn new_with_workitem(deadline:Timespec, item:Arc<WorkItem>)->HRTEntry{
+        HRTEntry{
+            deadline,
+            callback:Box::new(move ||{
+                &item.schedule();
+            })
+        }
+    }
+
+}
 pub struct HRTQueue{
     list:Mutex<VecDeque<HRTEntry>>,
     thread_id:libc::pthread_t
@@ -123,7 +137,7 @@ extern "C" fn hrtqueue_run(ptr:*mut libc::c_void)-> *mut libc::c_void{
             if let Some(x) = unlock_list.front(){
                 let now = get_time_now();
                 if now >= x.deadline{
-                    x.workitem.schedule();
+                    (x.callback)();
                     unlock_list.pop_front();
                 }else{
                     let escaped =(x.deadline - now).to_nano();
@@ -215,10 +229,7 @@ mod tests{
         let wq = WorkQueue::new("hrt",2048,1,false);
         let gps = GPS::new(&wq);
 
-        let entry = HRTEntry{
-            deadline: get_time_now(),
-            workitem: gps.item.clone()
-        };
+        let entry = HRTEntry::new_with_workitem(get_time_now(),gps.item.clone());
         queue.add(entry);
 
         while !gps.finish{};
@@ -229,10 +240,7 @@ mod tests{
         }
         assert_eq!(gps.finish,false);
 
-        let entry = HRTEntry{
-            deadline: get_time_now() + Timespec::from_secs(5000),
-            workitem: gps.item.clone() 
-        };
+        let entry = HRTEntry::new_with_workitem(get_time_now() + Timespec::from_secs(5000),gps.item.clone());
 
         queue.add(entry);
 
@@ -249,8 +257,8 @@ mod tests{
         let gps1 = GPS::new(&wq);
         let gps2 = GPS::new(&wq);
 
-        queue.add(HRTEntry { deadline: get_time_now() + Timespec::from_secs(3), workitem: gps1.item.clone() });
-        queue.add(HRTEntry { deadline: get_time_now() + Timespec::from_secs(5), workitem: gps2.item.clone() });
+        queue.add(HRTEntry::new_with_workitem(get_time_now() + Timespec::from_secs(3), gps1.item.clone()));
+        queue.add(HRTEntry::new_with_workitem(get_time_now() + Timespec::from_secs(5), gps2.item.clone()));
 
         std::thread::sleep(Duration::from_secs(1));
         assert_eq!(gps1.finish,false);
