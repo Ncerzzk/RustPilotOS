@@ -112,9 +112,15 @@ impl HRTEntry{
         HRTEntry{
             deadline,
             callback:Box::new(move ||{
-                &item.schedule();
+                (&item).schedule();
             })
         }
+    }
+
+    pub fn new<F>(deadline:Timespec, callback:F) -> HRTEntry where F:Fn() + 'static{
+        HRTEntry {
+            deadline, 
+            callback:Box::new(callback)}
     }
 
 }

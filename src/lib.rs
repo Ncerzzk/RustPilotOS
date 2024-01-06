@@ -6,6 +6,7 @@ pub mod hrt;
 pub mod msg;
 pub mod lock_step;
 pub mod module;
+pub mod pthread_scheduler;
 
 pub use ctor;
 pub use libc;

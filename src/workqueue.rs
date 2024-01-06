@@ -37,7 +37,7 @@ impl WorkItem{
     }
 
     pub fn schedule(self:&Arc<Self>){  
-        self.queue.upgrade().unwrap().add_to_worker_list(self.clone())
+        self.queue.upgrade().unwrap().add_to_worker_list(self.clone());
     }
 
     pub fn schedule_after(self:&Arc<Self>,us:i64){
