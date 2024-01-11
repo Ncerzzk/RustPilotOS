@@ -17,7 +17,7 @@ unsafe impl <T> Send for Receiver<T>{}
 unsafe impl <T> Sync for Receiver<T>{}
 
 impl <T> Receiver<T> {
-   pub fn read(&mut self) -> &T {
+   pub fn read(&mut self) -> T {
         let channel = unsafe{&mut *self.parent};
         if self.last_cnt == channel.cnt{
             // if no new msg, then wait for update
@@ -28,16 +28,15 @@ impl <T> Receiver<T> {
         data
    }
 
-   pub fn try_read(&mut self)->(bool,Option<&T>){
+   pub fn try_read(&mut self)->Option<T>{
         let channel = unsafe{&mut *self.parent};
         let (cnt,data) = channel.read();
         let updated = self.last_cnt != cnt;
 
         if updated{
-            self.last_cnt = cnt;
-            (updated,Some(data))
+            Some(data)
         }else{
-            (updated,None)
+            None
         }
    }
 
@@ -101,7 +100,7 @@ pub struct Channel<T>{
 unsafe impl<T> Send for Channel<T>{}
 unsafe impl<T> Sync for Channel<T>{}
 
-impl <T> Channel<T>{
+impl <T> Channel<T> where T:Sized{
     pub fn new()->(Sender<T>,Receiver<T>){
         let channel = Box::new(Channel{
             data: MaybeUninit::zeroed(),
@@ -127,9 +126,9 @@ impl <T> Channel<T>{
         self.condvar.notify_all();
     }
 
-    fn read(&self)->(u32,&T){
+    fn read(&self)->(u32,T){
         let _a = self.lock.lock().unwrap();
-        (self.cnt, unsafe{self.data.assume_init_ref()})
+        (self.cnt, unsafe{self.data.assume_init_read()})
     }
 
     fn wait_for_update(&self){
@@ -140,6 +139,8 @@ impl <T> Channel<T>{
 
 #[cfg(test)]
 mod tests{
+
+
     use super::*;
 
     #[derive(Debug,Default)]
@@ -157,8 +158,12 @@ mod tests{
         rx.read();
         assert_eq!(rx.last_cnt,1);
 
-        let (update,_)= rx.try_read();
-        assert_eq!(update,false);
+        let try_result = rx.try_read();
+        match try_result{
+            Some(x) => panic!("error!"),
+            None=> {}
+        };
+
     }
 
     #[test]
