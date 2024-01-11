@@ -1,4 +1,4 @@
-use std::{sync::{Arc, Weak, RwLock, Mutex, Condvar, mpsc::channel, atomic::{AtomicU32, Ordering, AtomicBool}}, mem::MaybeUninit};
+use std::{sync::{Mutex, Condvar, atomic::{AtomicU32, Ordering, AtomicBool}}, mem::MaybeUninit};
 
 
 
@@ -133,7 +133,7 @@ impl <T> Channel<T>{
     }
 
     fn wait_for_update(&self){
-        self.condvar.wait(self.lock.lock().unwrap()).unwrap();
+        drop(self.condvar.wait(self.lock.lock().unwrap()).unwrap());
     }
 }
 
