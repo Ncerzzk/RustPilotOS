@@ -1,4 +1,4 @@
-use std::{sync::{Mutex, Condvar, atomic::{AtomicU32, Ordering, AtomicBool}}, mem::MaybeUninit};
+use std::{sync::{Mutex, Condvar, atomic::{AtomicU32, Ordering, AtomicBool}}, mem::MaybeUninit, clone};
 
 
 
@@ -16,7 +16,7 @@ unsafe impl <T> Sync for Sender<T> {}
 unsafe impl <T> Send for Receiver<T>{}
 unsafe impl <T> Sync for Receiver<T>{}
 
-impl <T> Receiver<T> {
+impl <T> Receiver<T> where T:Clone{
    pub fn read(&mut self) -> T {
         let channel = unsafe{&mut *self.parent};
         if self.last_cnt == channel.cnt{
@@ -40,6 +40,11 @@ impl <T> Receiver<T> {
         }
    }
 
+    pub fn register_callback<F>(&self,callback:F) where F:Fn(&T)+'static{
+        let channel = unsafe{&mut *self.parent};
+        channel.register_callback(callback);
+    }
+
 }
 
 impl<T> Clone for Receiver<T>{
@@ -62,7 +67,7 @@ impl<T> Drop for Receiver<T>{
 
 
 
-impl<T> Sender<T> {
+impl<T> Sender<T> where T:Clone{
     pub fn send(&self,data:T){
         let channel =unsafe{&mut *(self.parent)};
         channel.write(data);
@@ -89,6 +94,7 @@ impl <T> Drop for Sender<T>{
 
 pub struct Channel<T>{
     data:MaybeUninit<T>,
+    callbacks:Vec<Box<dyn Fn(&T)>>,
     cnt:u32,
     lock:Mutex<bool>,
     condvar:Condvar,
@@ -100,10 +106,11 @@ pub struct Channel<T>{
 unsafe impl<T> Send for Channel<T>{}
 unsafe impl<T> Sync for Channel<T>{}
 
-impl <T> Channel<T> where T:Sized{
+impl <T> Channel<T> where T:Sized + Clone{
     pub fn new()->(Sender<T>,Receiver<T>){
         let channel = Box::new(Channel{
             data: MaybeUninit::zeroed(),
+            callbacks: Vec::new(),
             cnt:0,
             lock:Mutex::new(false),
             condvar:Condvar::new(),
@@ -119,11 +126,22 @@ impl <T> Channel<T> where T:Sized{
         (tx,rx)
     }
 
+    fn register_callback<F>(&mut self, callback:F) where F:Fn(&T) + 'static{
+        self.callbacks.push(Box::new(callback));
+    }
+
     fn write(&mut self,msg:T){
-        let _a = self.lock.lock().unwrap();
-        self.data.write(msg);
-        self.cnt +=1;
+        let msg_clone = msg.clone();
+        {
+            let _a = self.lock.lock().unwrap();
+            self.data.write(msg);
+            self.cnt +=1;
+        }
         self.condvar.notify_all();
+        
+        for callback in &self.callbacks{
+            callback(&msg_clone);
+        }
     }
 
     fn read(&self)->(u32,T){
@@ -143,7 +161,7 @@ mod tests{
 
     use super::*;
 
-    #[derive(Debug,Default)]
+    #[derive(Debug,Default,Clone)]
     struct TestStruct{
         x:u32,
         y:u32,
@@ -193,5 +211,19 @@ mod tests{
         let escape = start_time.elapsed().unwrap();
 
         assert!(escape.as_secs() >=5);
+    }
+
+    #[test]
+    fn test_channel_callback(){
+        fn test_func(msg:&TestStruct){
+            std::thread::sleep(std::time::Duration::from_secs(5));
+        }
+        let (tx,mut rx) = Channel::<TestStruct>::new();
+        rx.register_callback(test_func);
+
+        let start_time = std::time::SystemTime::now();
+        tx.send(TestStruct::default());
+        assert!(start_time.elapsed().unwrap().as_secs() >=5);
+
     }
 }
