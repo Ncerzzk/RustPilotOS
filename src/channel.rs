@@ -1,5 +1,5 @@
 use std::{
-    clone,
+    collections::HashMap,
     mem::MaybeUninit,
     sync::{
         atomic::{AtomicBool, AtomicU32, Ordering},
@@ -48,12 +48,17 @@ where
         }
     }
 
-    pub fn register_callback<F>(&self, callback: F)
+    pub fn register_callback<F>(&self, name: &str, callback: F)
     where
-        F: Fn(&T) + 'static,
+        F: FnMut(&T) + 'static,
     {
         let channel = unsafe { &mut *self.parent };
-        channel.register_callback(callback);
+        channel.register_callback(name, callback);
+    }
+
+    pub fn unregister_callback(&self, name: &str) {
+        let channel = unsafe { &mut *self.parent };
+        channel.unregister_callback(name);
     }
 }
 
@@ -118,9 +123,9 @@ impl<T> Drop for Sender<T> {
 
 pub struct Channel<T> {
     data: MaybeUninit<T>,
-    callbacks: Vec<Box<dyn Fn(&T)>>,
+    callbacks: Mutex<HashMap<String, Box<dyn FnMut(&T)>>>,
     cnt: u32,
-    lock: Mutex<bool>,
+    lock: Mutex<bool>, // this lock protect data,cnt
     condvar: Condvar,
     sender_cnt: AtomicU32,
     receiver_cnt: AtomicU32,
@@ -137,7 +142,7 @@ where
     pub fn new() -> (Sender<T>, Receiver<T>) {
         let channel = Box::new(Channel {
             data: MaybeUninit::zeroed(),
-            callbacks: Vec::new(),
+            callbacks: Mutex::new(HashMap::new()),
             cnt: 0,
             lock: Mutex::new(false),
             condvar: Condvar::new(),
@@ -158,11 +163,18 @@ where
         (tx, rx)
     }
 
-    fn register_callback<F>(&mut self, callback: F)
+    fn register_callback<F>(&mut self, name: &str, callback: F)
     where
-        F: Fn(&T) + 'static,
+        F: FnMut(&T) + 'static,
     {
-        self.callbacks.push(Box::new(callback));
+        self.callbacks
+            .lock()
+            .unwrap()
+            .insert(name.to_string(), Box::new(callback));
+    }
+
+    fn unregister_callback(&mut self, name: &str) {
+        self.callbacks.lock().unwrap().remove(&name.to_string());
     }
 
     fn write(&mut self, msg: T) {
@@ -174,7 +186,7 @@ where
         }
         self.condvar.notify_all();
 
-        for callback in &self.callbacks {
+        for (_, callback) in self.callbacks.lock().unwrap().iter_mut() {
             callback(&msg_clone);
         }
     }
@@ -210,10 +222,7 @@ mod tests {
         assert_eq!(rx.last_cnt, 1);
 
         let try_result = rx.try_read();
-        match try_result {
-            Some(x) => panic!("error!"),
-            None => {}
-        };
+        assert!(try_result.is_none());
     }
 
     #[test]
@@ -263,10 +272,15 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_secs(5));
         }
         let (tx, mut rx) = Channel::<TestStruct>::new();
-        rx.register_callback(test_func);
+        rx.register_callback("test_cb", test_func);
 
         let start_time = std::time::SystemTime::now();
         tx.send(TestStruct::default());
         assert!(start_time.elapsed().unwrap().as_secs() >= 5);
+
+        let start_time = std::time::SystemTime::now();
+        rx.unregister_callback("test_cb");
+        tx.send(TestStruct::default());
+        assert!(start_time.elapsed().unwrap().as_secs() <= 1);
     }
 }
