@@ -178,22 +178,24 @@ where
     }
 
     fn write(&mut self, msg: T) {
-        let msg_clone = msg.clone();
+        for (_, callback) in self.callbacks.lock().unwrap().iter_mut() {
+            callback(&msg);
+        }
+
         {
             let _a = self.lock.lock().unwrap();
             self.data.write(msg);
             self.cnt += 1;
         }
         self.condvar.notify_all();
-
-        for (_, callback) in self.callbacks.lock().unwrap().iter_mut() {
-            callback(&msg_clone);
-        }
     }
 
-    fn read(&self) -> (u32, T) {
+    fn read(&self) -> (u32, T)
+    where
+        T: Clone,
+    {
         let _a = self.lock.lock().unwrap();
-        (self.cnt, unsafe { self.data.assume_init_read() })
+        (self.cnt, unsafe { self.data.assume_init_ref().clone() })
     }
 
     fn wait_for_update(&self) {
@@ -206,7 +208,7 @@ mod tests {
 
     use super::*;
 
-    #[derive(Debug, Default, Clone)]
+    #[derive(Debug, Default, Clone, Copy)]
     struct TestStruct {
         x: u32,
         y: u32,
