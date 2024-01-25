@@ -1,9 +1,13 @@
 
-## Features
-- 支持ROS2
-- 运行过程中，可以通过命令查询组件的运行状态（由每个组件自行实现）
-- 调度delay 统计
-- 简化传感器ID设计
-    - 每个传感器一个独一的设备ID，该ID与总线无关
-    - 通信ID，用来标志运行于什么总线，挂载在总线的什么地址
-- 测试（仿真）驱动
+## Introduction
+Basic tools used in RustPilot, offer the functionalities include:
+
+- hrt(high resolution clock), used to schedule pthread or workqueue
+- channel, used for intern process communication
+    - provide basic rx/tx channel with no fifo(only record the latest message)
+    - support msg callback
+- scheduled_pthread, we can schedule a pthread periodically
+- lock step support, user could provide the time update function to replace the default system clock
+- module support, provide basic module register and get.
+- pthread, low-level pthread wrapper, used by scheduled_pthread
+
