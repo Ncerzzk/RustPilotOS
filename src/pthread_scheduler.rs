@@ -1,7 +1,7 @@
 use std::{
     mem::{transmute, MaybeUninit},
     ptr::{null, null_mut},
-    sync::{Arc, Condvar, Mutex, RwLock, Weak},
+    sync::{Arc, Condvar, Mutex, RwLock, Weak}, cell::RefCell,
 };
 
 use crate::{
@@ -17,6 +17,7 @@ pub struct SchedulePthread {
     thread_func: fn(*mut libc::c_void) -> *mut libc::c_void,
     pub thread_args: *mut libc::c_void,
     last_scheduled_time: RwLock<Timespec>,
+    thread_id:u64,
 }
 
 impl SchedulePthread {
@@ -48,7 +49,7 @@ impl SchedulePthread {
             spec_data = null_mut();
         }
 
-        let mut ret = Arc::new(SchedulePthread {
+        let ret = Arc::new(SchedulePthread {
             condvar: Condvar::new(),
             should_exit: Mutex::new(false),
             specific_data: spec_data,
@@ -56,15 +57,25 @@ impl SchedulePthread {
             thread_func: f,
             thread_args: extral_args,
             last_scheduled_time: RwLock::new(get_time_now()),
+            thread_id:0
         });
-        create_phtread(
+        let id = create_phtread(
             stack_size,
             priority,
             Self::wrapper,
             Arc::into_raw(ret.clone()) as *mut libc::c_void,
             is_fifo_schedule,
         );
+        unsafe{
+            (*(Arc::as_ptr(&ret) as *mut SchedulePthread)).thread_id = id;
+        }
         ret
+    }
+
+    pub fn join(&self){
+        unsafe{
+            libc::pthread_join(self.thread_id,null_mut());
+        }
     }
 
     fn wake_schedule_pthread(sp: &SchedulePthread) {
