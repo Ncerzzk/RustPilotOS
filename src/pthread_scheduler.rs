@@ -18,6 +18,7 @@ pub struct SchedulePthread {
     pub thread_args: *mut libc::c_void,
     last_scheduled_time: RwLock<Timespec>,
     thread_id:u64,
+    deadline:RwLock<Timespec>
 }
 
 impl SchedulePthread {
@@ -57,7 +58,8 @@ impl SchedulePthread {
             thread_func: f,
             thread_args: extral_args,
             last_scheduled_time: RwLock::new(get_time_now()),
-            thread_id:0
+            thread_id:0,
+            deadline:RwLock::new(get_time_now())
         });
         let id = create_phtread(
             stack_size,
@@ -86,21 +88,25 @@ impl SchedulePthread {
 
     pub fn schedule_after(self: &Arc<Self>, us: i64) {
         let p = self.clone();
-        let entry = HRTEntry::new(get_time_now() + us * 1000, move || {
+        let deadline = get_time_now() + us * 1000;
+        let entry = HRTEntry::new(deadline, move || {
             Self::wake_schedule_pthread(p.as_ref());
         });
+        *(self.deadline.write().unwrap()) = deadline;
         HRT_QUEUE.add(entry);
         drop(self.condvar.wait(self.should_exit.lock().unwrap()));
     }
 
     pub fn schedule_until(self: &Arc<Self>, us: i64) {
         let p = self.clone();
+        let deadline = *(self.last_scheduled_time.read().unwrap()) + us * 1000;
         let entry = HRTEntry::new(
-            *(self.last_scheduled_time.read().unwrap()) + us * 1000,
+            deadline,
             move || {
                 Self::wake_schedule_pthread(p.as_ref());
             },
         );
+        *(self.deadline.write().unwrap()) = deadline;
         HRT_QUEUE.add(entry);
         drop(self.condvar.wait(self.should_exit.lock().unwrap()));
     }
