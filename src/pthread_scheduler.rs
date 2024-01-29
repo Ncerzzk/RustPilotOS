@@ -90,7 +90,7 @@ impl SchedulePthread {
             Self::wake_schedule_pthread(p.as_ref());
         });
         HRT_QUEUE.add(entry);
-        let _ = self.condvar.wait(self.should_exit.lock().unwrap());
+        drop(self.condvar.wait(self.should_exit.lock().unwrap()));
     }
 
     pub fn schedule_until(self: &Arc<Self>, us: i64) {
@@ -102,7 +102,7 @@ impl SchedulePthread {
             },
         );
         HRT_QUEUE.add(entry);
-        let _ = self.condvar.wait(self.should_exit.lock().unwrap());
+        drop(self.condvar.wait(self.should_exit.lock().unwrap()));
     }
 }
 

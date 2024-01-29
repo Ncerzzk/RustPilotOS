@@ -167,7 +167,7 @@ impl WorkQueue {
                 }
             }
 
-            let _ = self.signal.wait(self.list.lock().unwrap());
+            drop(self.signal.wait(self.list.lock().unwrap()));
             // wait for other thread add item to queue
         }
     }
