@@ -33,6 +33,9 @@ pub fn create_phtread(
         {
             if is_fifo_schedule {
                 libc::pthread_attr_setschedpolicy(attr_ptr, libc::SCHED_FIFO);
+                if libc::getuid() !=0{
+                    panic!("please use root to create the fifo thread!");
+                }
             } else {
                 libc::pthread_attr_setschedpolicy(attr_ptr, libc::SCHED_OTHER);
             }
