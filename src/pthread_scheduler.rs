@@ -16,9 +16,9 @@ pub struct SchedulePthread {
     specific_key: Option<u32>,
     thread_func: fn(*mut libc::c_void) -> *mut libc::c_void,
     pub thread_args: *mut libc::c_void,
-    last_scheduled_time: RwLock<Timespec>,
+    pub last_scheduled_time: RwLock<Timespec>,
     thread_id:u64,
-    deadline:RwLock<Timespec>
+    pub deadline:RwLock<Timespec>
 }
 
 impl SchedulePthread {
@@ -81,9 +81,9 @@ impl SchedulePthread {
     }
 
     fn wake_schedule_pthread(sp: &SchedulePthread) {
-        sp.condvar.notify_all();
         let mut a = sp.last_scheduled_time.write().unwrap();
         *a = get_time_now();
+        sp.condvar.notify_all();
     }
 
     pub fn schedule_after(self: &Arc<Self>, us: i64) {
