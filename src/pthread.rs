@@ -3,18 +3,25 @@ use std::mem::MaybeUninit;
 #[inline]
 pub fn nanosleep(ns: i64) -> i64 {
     // ns should less than  999999999
-    let t = libc::timespec {
-        tv_sec: 0,
-        tv_nsec: ns,
-    };
-    let mut rt = libc::timespec {
-        tv_sec: 0,
-        tv_nsec: 0,
-    };
-    unsafe {
-        libc::nanosleep(&t as *const libc::timespec, &mut rt as *mut libc::timespec);
-    };
-    rt.tv_nsec
+    #[cfg(feature= "lock_step_enabled")]{
+        crate::lock_step::lock_step_nanosleep(ns)
+    }
+
+    #[cfg(not(feature = "lock_step_enabled"))]{
+        let t = libc::timespec {
+            tv_sec: 0,
+            tv_nsec: ns,
+        };
+        let mut rt = libc::timespec {
+            tv_sec: 0,
+            tv_nsec: 0,
+        };
+        unsafe {
+            libc::nanosleep(&t as *const libc::timespec, &mut rt as *mut libc::timespec);
+        };
+        rt.tv_nsec
+    }
+
 }
 
 pub fn create_phtread(

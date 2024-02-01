@@ -35,8 +35,6 @@ pub fn lock_step_init_test_thread() {
 }
 
 pub fn lock_step_nanosleep(ns: i64) -> i64 {
-    let mut nsec: i64;
-    let mut sec: i64;
 
     let current;
     {
