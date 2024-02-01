@@ -87,28 +87,37 @@ impl SchedulePthread {
     }
 
     pub fn schedule_after(self: &Arc<Self>, us: i64) {
-        let p = self.clone();
-        let deadline = get_time_now() + us * 1000;
-        let entry = HRTEntry::new(deadline, move || {
-            Self::wake_schedule_pthread(p.as_ref());
-        });
-        *(self.deadline.write().unwrap()) = deadline;
-        HRT_QUEUE.add(entry);
-        drop(self.condvar.wait(self.should_exit.lock().unwrap()));
+        // let p = self.clone();
+        // let deadline = get_time_now() + us * 1000;
+        // let entry = HRTEntry::new(deadline, move || {
+        //     Self::wake_schedule_pthread(p.as_ref());
+        // });
+        // *(self.deadline.write().unwrap()) = deadline;
+        // HRT_QUEUE.add(entry);
+        // drop(self.condvar.wait(self.should_exit.lock().unwrap()));
+        // lock is released here, so other thread could do some adding
+        *(self.deadline.write().unwrap()) = get_time_now() + us * 1000;
+        nanosleep(us * 1000);
+        *(self.last_scheduled_time.write().unwrap()) = get_time_now();
     }
 
     pub fn schedule_until(self: &Arc<Self>, us: i64) {
         let p = self.clone();
         let deadline = *(self.last_scheduled_time.read().unwrap()) + us * 1000;
-        let entry = HRTEntry::new(
-            deadline,
-            move || {
-                Self::wake_schedule_pthread(p.as_ref());
-            },
-        );
         *(self.deadline.write().unwrap()) = deadline;
-        HRT_QUEUE.add(entry);
-        drop(self.condvar.wait(self.should_exit.lock().unwrap()));
+
+        let now = get_time_now();
+        nanosleep((deadline - now).to_nano());
+        *(self.last_scheduled_time.write().unwrap()) = get_time_now();
+        // let entry = HRTEntry::new(
+        //     deadline,
+        //     move || {
+        //         Self::wake_schedule_pthread(p.as_ref());
+        //     },
+        // );
+        // *(self.deadline.write().unwrap()) = deadline;
+        // HRT_QUEUE.add(entry);
+        // drop(self.condvar.wait(self.should_exit.lock().unwrap()));
     }
 }
 
