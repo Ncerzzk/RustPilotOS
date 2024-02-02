@@ -1,3 +1,5 @@
+use libc::{c_ulong, c_long};
+
 use crate::hrt::{get_time_now, Timespec};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -41,7 +43,7 @@ pub fn lock_step_nanosleep(ns: i64) -> i64 {
         current = *LOCK_STEP_CURRENT_TIME.lock().unwrap();
     }
 
-    let deadline = current + ns;
+    let deadline = current + ns as c_long;
 
     let ret = loop {
         let current_guard: std::sync::MutexGuard<'_, Timespec> =

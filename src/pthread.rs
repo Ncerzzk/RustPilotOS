@@ -1,7 +1,8 @@
 use std::mem::MaybeUninit;
+use libc::{c_long, c_ulong};
 
 #[inline]
-pub fn nanosleep(ns: i64) -> i64 {
+pub fn nanosleep(ns: c_long) -> c_long {
     // ns should less than  999999999
     #[cfg(feature= "lock_step_enabled")]{
         crate::lock_step::lock_step_nanosleep(ns)
@@ -10,7 +11,7 @@ pub fn nanosleep(ns: i64) -> i64 {
     #[cfg(not(feature = "lock_step_enabled"))]{
         let t = libc::timespec {
             tv_sec: 0,
-            tv_nsec: ns,
+            tv_nsec: ns,            
         };
         let mut rt = libc::timespec {
             tv_sec: 0,
@@ -30,7 +31,7 @@ pub fn create_phtread(
     f: extern "C" fn(*mut libc::c_void) -> *mut libc::c_void,
     value: *mut libc::c_void,
     is_fifo_schedule: bool,
-) -> u64 {
+) -> c_ulong {
     unsafe {
         let mut attr = MaybeUninit::<libc::pthread_attr_t>::uninit();
         let attr_ptr = attr.as_mut_ptr();

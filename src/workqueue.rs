@@ -54,7 +54,7 @@ impl WorkItem {
             .add_to_worker_list(self.clone());
     }
 
-    pub fn schedule_after(self: &Arc<Self>, us: i64) {
+    pub fn schedule_after(self: &Arc<Self>, us: libc::c_long) {
         let entry = HRTEntry::new_with_workitem(get_time_now() + us * 1000, self.clone());
         HRT_QUEUE.add(entry);
     }
@@ -63,7 +63,7 @@ impl WorkItem {
        schedule_until
        This method should be called at workqueue thread.
     */
-    pub fn schedule_until(self: &Arc<Self>, us: i64) {
+    pub fn schedule_until(self: &Arc<Self>, us: libc::c_long) {
         let entry = HRTEntry::new_with_workitem(self.last_call_time + us * 1000, self.clone());
         HRT_QUEUE.add(entry);
     }

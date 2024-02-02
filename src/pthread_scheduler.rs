@@ -4,6 +4,8 @@ use std::{
     sync::{Arc, Condvar, Mutex, RwLock, Weak}, cell::RefCell,
 };
 
+use libc::{c_long, c_ulong};
+
 use crate::{
     hrt::{get_time_now, HRTEntry, Timespec, HRT_QUEUE},
     pthread::{create_phtread, nanosleep},
@@ -17,7 +19,7 @@ pub struct SchedulePthread {
     thread_func: fn(*mut libc::c_void) -> *mut libc::c_void,
     pub thread_args: *mut libc::c_void,
     pub last_scheduled_time: RwLock<Timespec>,
-    thread_id:u64,
+    thread_id:c_ulong,
     pub deadline:RwLock<Timespec>
 }
 
@@ -86,7 +88,7 @@ impl SchedulePthread {
         sp.condvar.notify_all();
     }
 
-    pub fn schedule_after(self: &Arc<Self>, us: i64) {
+    pub fn schedule_after(self: &Arc<Self>, us: c_long) {
         // let p = self.clone();
         // let deadline = get_time_now() + us * 1000;
         // let entry = HRTEntry::new(deadline, move || {
@@ -101,13 +103,13 @@ impl SchedulePthread {
         *(self.last_scheduled_time.write().unwrap()) = get_time_now();
     }
 
-    pub fn schedule_until(self: &Arc<Self>, us: i64) {
+    pub fn schedule_until(self: &Arc<Self>, us: c_long) {
         let p = self.clone();
         let deadline = *(self.last_scheduled_time.read().unwrap()) + us * 1000;
         *(self.deadline.write().unwrap()) = deadline;
 
         let now = get_time_now();
-        nanosleep((deadline - now).to_nano());
+        nanosleep((deadline - now).to_nano() as c_long);
         *(self.last_scheduled_time.write().unwrap()) = get_time_now();
         // let entry = HRTEntry::new(
         //     deadline,

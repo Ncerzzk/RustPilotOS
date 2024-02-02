@@ -5,6 +5,8 @@ use std::{
     sync::{Arc, LazyLock, Mutex},
 };
 
+use libc::c_long;
+
 use crate::{lock_step::LOCK_STEP_CURRENT_TIME, pthread::*, workqueue::*};
 
 pub static HRT_QUEUE: LazyLock<Box<HRTQueue>> = LazyLock::new(|| {
@@ -14,8 +16,8 @@ pub static HRT_QUEUE: LazyLock<Box<HRTQueue>> = LazyLock::new(|| {
 
 #[derive(PartialEq, Clone, Copy, Debug)]
 pub struct Timespec {
-    pub sec: i64,
-    pub nsec: i64,
+    pub sec: c_long,
+    pub nsec: c_long,
 }
 
 impl PartialOrd for Timespec {
@@ -59,9 +61,9 @@ impl Sub<libc::timespec> for Timespec {
     }
 }
 
-impl Add<i64> for Timespec {
+impl Add<c_long> for Timespec {
     type Output = Self;
-    fn add(self, rhs: i64) -> Self::Output {
+    fn add(self, rhs: c_long) -> Self::Output {
         Self {
             sec: self.sec,
             nsec: self.nsec + rhs,
@@ -83,11 +85,11 @@ impl Add for Timespec {
 
 impl Timespec {
     pub fn to_nano(&self) -> i64 {
-        self.sec * 1000 * 1000 * 1000 + self.nsec
+        self.sec as i64 * 1000 * 1000 * 1000 + self.nsec as i64
     }
 
     pub fn from_secs(sec: i64) -> Self {
-        Self { sec, nsec: 0 }
+        Self { sec:sec as c_long, nsec: 0 }
     }
 }
 
@@ -139,7 +141,7 @@ pub struct HRTQueue {
     thread_id: libc::pthread_t,
 }
 
-const DURATION_1_MS: i64 = 1000 * 1000;
+const DURATION_1_MS: c_long = 1000 * 1000;
 
 #[allow(unreachable_code)]
 extern "C" fn hrtqueue_run(ptr: *mut libc::c_void) -> *mut libc::c_void {
@@ -157,10 +159,10 @@ extern "C" fn hrtqueue_run(ptr: *mut libc::c_void) -> *mut libc::c_void {
                     unlock_list.pop_front();
                 } else {
                     let escaped = (x.deadline - now).to_nano();
-                    sleep_time = if escaped > DURATION_1_MS {
+                    sleep_time = if escaped > DURATION_1_MS as i64 {
                         DURATION_1_MS
                     } else {
-                        escaped
+                        escaped as c_long
                     };
                     break;
                 }
