@@ -7,7 +7,7 @@ use std::{
 
 use libc::c_long;
 
-use crate::{lock_step::LOCK_STEP_CURRENT_TIME, pthread::*, workqueue::*};
+use crate::{lock_step::LOCK_STEP_CURRENT_TIME, pthread::* };
 
 pub static HRT_QUEUE: LazyLock<Box<HRTQueue>> = LazyLock::new(|| {
     let m = HRTQueue::new();
@@ -117,14 +117,6 @@ unsafe impl Send for HRTEntry {}
 unsafe impl Sync for HRTEntry {}
 
 impl HRTEntry {
-    pub fn new_with_workitem(deadline: Timespec, item: Arc<WorkItem>) -> HRTEntry {
-        HRTEntry {
-            deadline,
-            callback: Box::new(move || {
-                (&item).schedule();
-            }),
-        }
-    }
 
     pub fn new<F>(deadline: Timespec, callback: F) -> HRTEntry
     where
@@ -233,7 +225,6 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
-    use crate::workqueue::tests::GPS;
 
     #[test]
     fn test_awake() {
@@ -242,58 +233,4 @@ mod tests {
         Box::leak(queue);
     }
 
-    #[test]
-    fn test_hrt_basic() {
-        let queue = Box::leak(HRTQueue::new());
-        let wq = WorkQueue::new("hrt", 2048, 1, false);
-        let gps = GPS::new(&wq);
-
-        let entry = HRTEntry::new_with_workitem(get_time_now(), gps.item.clone());
-        queue.add(entry);
-
-        while !gps.finish {}
-
-        let ptr = Arc::as_ptr(&gps) as *mut GPS;
-        unsafe {
-            (*ptr).finish = false;
-        }
-        assert_eq!(gps.finish, false);
-
-        let entry = HRTEntry::new_with_workitem(
-            get_time_now() + Timespec::from_secs(5000),
-            gps.item.clone(),
-        );
-
-        queue.add(entry);
-
-        std::thread::sleep(Duration::from_secs(5));
-
-        assert_eq!(gps.finish, false);
-    }
-
-    #[test]
-    fn test_multi_works_order() {
-        let queue = Box::leak(HRTQueue::new());
-        let wq = WorkQueue::new("multi", 2048, 1, false);
-
-        let gps1 = GPS::new(&wq);
-        let gps2 = GPS::new(&wq);
-
-        queue.add(HRTEntry::new_with_workitem(
-            get_time_now() + Timespec::from_secs(3),
-            gps1.item.clone(),
-        ));
-        queue.add(HRTEntry::new_with_workitem(
-            get_time_now() + Timespec::from_secs(5),
-            gps2.item.clone(),
-        ));
-
-        std::thread::sleep(Duration::from_secs(1));
-        assert_eq!(gps1.finish, false);
-        assert_eq!(gps2.finish, false);
-        std::thread::sleep(Duration::from_secs(3));
-        assert_eq!(gps1.finish, true);
-        std::thread::sleep(Duration::from_secs(2));
-        assert_eq!(gps2.finish, true);
-    }
 }
