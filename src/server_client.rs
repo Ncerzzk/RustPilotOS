@@ -37,22 +37,22 @@ pub fn server_init<P: AsRef<Path>>(socket_path:P)->Result<(), std::io::Error>{
     let stream = UnixListener::bind(socket_path.as_ref()).unwrap();
         
     for client in stream.incoming(){
+        let mut client = client.unwrap();
+        let mut buffer = [0; 100];
+        client.read(&mut buffer).unwrap();
+
+        let cmd_raw= CStr::from_bytes_until_nul(&buffer).unwrap().to_str().unwrap().to_string();
+        if cmd_raw.contains("shutdown"){
+            break;
+        }
 
         let x= std::thread::spawn(move ||{
-            let mut client = client.unwrap();
-            let mut buffer = [0; 100];
-            client.read(&mut buffer).unwrap();
-            
-            let cmd_raw= CStr::from_bytes_until_nul(&buffer).unwrap().to_str().unwrap().to_string();
-
             let cmd_with_args:Vec<_> = cmd_raw.split_whitespace().collect();
             assert!(cmd_with_args.len()>=1);
-            println!("Client said:{},argc:{}",cmd_raw,cmd_with_args.len());
-            
+
             let data =ThreadSpecificData{
                 stream: &mut client as *mut UnixStream
             };
-
             set_thread_specifidata(data);
             Module::get_module(cmd_with_args[0]).execute((cmd_with_args.len()) as u32, cmd_with_args.as_ptr());
             client.shutdown(std::net::Shutdown::Both).expect("failed to shutdown the socket!");
