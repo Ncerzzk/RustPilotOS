@@ -1,9 +1,9 @@
-use std::{path::Path, io::{self, Read, BufReader, BufRead, Write}, os::unix::net::{UnixListener, UnixStream}, ffi::CStr, sync::LazyLock, mem::MaybeUninit};
+use std::{path::Path, io::{self, Read, BufReader, BufRead, Write}, os::{unix::net::{UnixListener, UnixStream}, fd::AsRawFd}, ffi::CStr, sync::LazyLock, mem::MaybeUninit, collections::HashMap};
+use polling::{Poller, Event, Events};
 
-use crate::module::Module;
+use crate::{module::Module, pthread_scheduler::SchedulePthread};
 
 #[repr(C)]
-#[derive(Clone, Copy)]
 struct ThreadSpecificData  {
     stream:*mut UnixStream
 }
@@ -34,31 +34,50 @@ unsafe extern "C" fn drop_specifidata(ptr:*mut libc::c_void){
 pub fn server_init<P: AsRef<Path>>(socket_path:P)->Result<(), std::io::Error>{
     let _ = std::fs::remove_file(socket_path.as_ref());
 
-    let stream = UnixListener::bind(socket_path.as_ref()).unwrap();
-        
-    for client in stream.incoming(){
-        let mut client = client.unwrap();
-        let mut buffer = [0; 100];
-        client.read(&mut buffer).unwrap();
+    let listener = UnixListener::bind(socket_path.as_ref()).unwrap();
+    listener.set_nonblocking(true).unwrap();
 
-        let cmd_raw= CStr::from_bytes_until_nul(&buffer).unwrap().to_str().unwrap().to_string();
-        if cmd_raw.contains("shutdown"){
-            break;
+    let poller = Poller::new().unwrap();
+    let mut fd_thread_map:HashMap<usize,libc::c_ulong> = HashMap::new();
+    loop{
+        if let Ok((mut client,_)) = listener.accept(){
+            let mut buffer = [0; 100];
+            client.read(&mut buffer).unwrap();
+    
+            let cmd_raw= CStr::from_bytes_until_nul(&buffer).unwrap().to_str().unwrap().to_string();
+            if cmd_raw.contains("shutdown"){
+                break;
+            }
+    
+            let mut client_cp = client.try_clone().unwrap();
+            let x= SchedulePthread::new_simple(Box::new(move ||{
+                let cmd_with_args:Vec<_> = cmd_raw.split_whitespace().collect();
+                assert!(cmd_with_args.len()>=1);
+    
+                let data =ThreadSpecificData{
+                    stream: &mut client_cp as *mut UnixStream,
+                };
+                set_thread_specifidata(data);
+                Module::get_module(cmd_with_args[0]).execute((cmd_with_args.len()) as u32, cmd_with_args.as_ptr());
+                _ = client_cp.shutdown(std::net::Shutdown::Both);
+            }));
+            unsafe { poller.add(&client, Event::none(client.as_raw_fd() as usize).with_interrupt()).unwrap() };
+            fd_thread_map.insert(client.as_raw_fd() as usize, x.thread_id);
         }
 
-        let x= std::thread::spawn(move ||{
-            let cmd_with_args:Vec<_> = cmd_raw.split_whitespace().collect();
-            assert!(cmd_with_args.len()>=1);
+        let mut events = Events::new();
+        let _ = poller.wait(&mut events, Some(std::time::Duration::from_secs(1)));
 
-            let data =ThreadSpecificData{
-                stream: &mut client as *mut UnixStream
-            };
-            set_thread_specifidata(data);
-            Module::get_module(cmd_with_args[0]).execute((cmd_with_args.len()) as u32, cmd_with_args.as_ptr());
-            client.shutdown(std::net::Shutdown::Both).expect("failed to shutdown the socket!");
-        });
+        for ev in events.iter(){
+            let thread = fd_thread_map.remove(&ev.key).unwrap();
+            unsafe{
+                libc::pthread_cancel(thread); // some memory may leak
+            }
+        }
+
 
     }
+        
     Ok(())
 }
 
@@ -102,7 +121,7 @@ macro_rules! thread_logln {
 #[macro_export]
 macro_rules! thread_log {
     ($($arg:tt)*) => {
-        write!(get_output(),"{}", format!($($arg)*)).unwrap()
+        write!(rpos::server_client::get_output(),"{}", format!($($arg)*)).unwrap()
     }
 }
 
@@ -111,7 +130,7 @@ pub fn get_output()->Box<dyn Write>{
     if thread_data == std::ptr::null_mut(){
         Box::new(std::io::stdout()) as Box<dyn Write>
     }else{
-        let stream:ThreadSpecificData = unsafe{*(thread_data as *mut ThreadSpecificData)};
+        let stream:&ThreadSpecificData = unsafe{&mut *(thread_data as *mut ThreadSpecificData)};
         unsafe{
             Box::new((*stream.stream).try_clone().unwrap()) as Box<dyn Write>
         }
