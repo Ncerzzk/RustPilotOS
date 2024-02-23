@@ -19,7 +19,7 @@ pub struct SchedulePthread {
     thread_func: fn(*mut libc::c_void) -> *mut libc::c_void,
     pub thread_args: *mut libc::c_void,
     pub last_scheduled_time: RwLock<Timespec>,
-    thread_id:c_ulong,
+    pub thread_id:c_ulong,
     pub deadline:RwLock<Timespec>
 }
 
@@ -34,6 +34,26 @@ impl SchedulePthread {
         (sp.thread_func)(Arc::into_raw(sp) as *mut libc::c_void);
         null_mut()
     }
+
+    
+    fn simple_wrapper(ptr:*mut libc::c_void) -> *mut libc::c_void{
+        let sp = unsafe { Arc::from_raw(ptr as *const SchedulePthread) };
+
+        let b = sp.thread_args as *mut Box<dyn FnOnce()>;
+        let a = unsafe { Box::from_raw(b) };
+        (a)();
+        null_mut()
+    }
+
+    pub fn new_simple(f: Box<dyn FnOnce()>) ->Arc<Self>
+        {
+            let func = Box::new(f);
+
+            let a = Box::into_raw(func) as *mut libc::c_void;
+
+            Self::new(8192, 50, Self::simple_wrapper, a, false, None)
+        }
+
 
     pub fn new(
         stack_size: u32,
@@ -195,5 +215,16 @@ mod tests {
         );
 
         std::thread::sleep(std::time::Duration::from_secs(2));
+    }
+
+    #[test]
+    fn test_simple_thread(){
+        let a = 1;
+
+        let thread = SchedulePthread::new_simple(Box::new(move ||{
+            assert_eq!(a,1);
+        }));
+
+        unsafe { libc::pthread_join(thread.thread_id,null_mut()) };
     }
 }
