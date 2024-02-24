@@ -100,7 +100,7 @@ impl Client{
         let mut str_out:String = String::new();
         while let Ok(n) = bufreader.read_line(&mut str_out){
             if n == 0{break;}
-            println!("{}",str_out);
+            print!("{}",str_out);
             str_out.clear();
         }
     }
