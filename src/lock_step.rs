@@ -1,9 +1,9 @@
-use libc::{c_ulong, c_long};
+use libc::{c_long};
 
-use crate::hrt::{get_time_now, Timespec};
+use crate::hrt::{Timespec};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
-    Condvar, LazyLock, Mutex, Once,
+    Condvar, LazyLock, Mutex,
 };
 
 pub static LOCK_STEP_CURRENT_TIME: LazyLock<Mutex<Timespec>> =
@@ -19,6 +19,10 @@ pub fn lock_step_update_time(new_time: Timespec) {
     LOCK_STEP_CONVAR.notify_one();
 }
 
+#[cfg(test)]
+use crate::hrt::get_time_now;
+#[cfg(test)]
+use std::sync::Once;
 #[cfg(test)]
 static INIT_TEST_THREAD: Once = Once::new();
 #[cfg(test)]

@@ -2,7 +2,7 @@ use std::{
     boxed::Box,
     collections::VecDeque,
     ops::{Add, Sub},
-    sync::{Arc, LazyLock, Mutex},
+    sync::{LazyLock, Mutex},
 };
 
 use libc::c_long;
