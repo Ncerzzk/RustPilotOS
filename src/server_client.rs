@@ -1,11 +1,14 @@
-use std::{path::Path, io::{self, Read, BufReader, BufRead, Write}, os::{unix::net::{UnixListener, UnixStream}, fd::AsRawFd}, ffi::CStr, sync::LazyLock, mem::MaybeUninit, collections::HashMap};
+use std::{path::Path, io::{self, Read, BufReader, BufRead, Write}, os::{unix::net::{UnixListener, UnixStream}, fd::AsRawFd}, ffi::CStr, sync::LazyLock, mem::MaybeUninit, collections::HashMap, ptr::null};
 use polling::{Poller, Event, Events};
+use sendfd::{SendWithFd, RecvWithFd};
 
 use crate::{module::Module, pthread_scheduler::SchedulePthread};
 
 #[repr(C)]
 struct ThreadSpecificData  {
-    stream:*mut UnixStream
+    stream:*mut UnixStream,
+    client_stdin:libc::c_int,
+    client_stdout:libc::c_int
 }
 
 static PTHREAD_KEY:LazyLock<u32>= LazyLock::new(||{
@@ -22,6 +25,16 @@ fn set_thread_specifidata(data:ThreadSpecificData){
     unsafe{
         libc::pthread_setspecific(*PTHREAD_KEY, &*data as *const ThreadSpecificData as *const libc::c_void );
     } 
+}
+
+fn get_thread_specifidata() -> Option<&'static ThreadSpecificData>{
+    unsafe{
+        let ret = libc::pthread_getspecific(*PTHREAD_KEY) as *const ThreadSpecificData;
+        if ret == std::ptr::null(){
+            return None;
+        }
+        Some(&*ret)
+    }
 }
 
 unsafe extern "C" fn drop_specifidata(ptr:*mut libc::c_void){
@@ -41,6 +54,12 @@ pub fn server_init<P: AsRef<Path>>(socket_path:P)->Result<(), std::io::Error>{
     let mut fd_thread_map:HashMap<usize,libc::c_ulong> = HashMap::new();
     loop{
         if let Ok((mut client,_)) = listener.accept(){
+            let mut fds:[libc::c_int;2] = [0;2];
+            let mut buf:[u8;10]=[0;10];
+            unsafe{
+                client.recv_with_fd(&mut buf, std::slice::from_raw_parts_mut(fds.as_mut_ptr(),2)).unwrap();
+            }
+            
             let mut buffer = [0; 100];
             client.read(&mut buffer).unwrap();
     
@@ -56,6 +75,8 @@ pub fn server_init<P: AsRef<Path>>(socket_path:P)->Result<(), std::io::Error>{
     
                 let data =ThreadSpecificData{
                     stream: &mut client_cp as *mut UnixStream,
+                    client_stdin:fds[0],
+                    client_stdout:fds[1]
                 };
                 set_thread_specifidata(data);
                 Module::get_module(cmd_with_args[0]).execute((cmd_with_args.len()) as u32, cmd_with_args.as_ptr());
@@ -89,9 +110,10 @@ pub struct Client{
 impl Client{
     pub fn new<P: AsRef<Path>>(socket_path:P)->Result<Client,io::Error>{
         let stream = UnixStream::connect(socket_path.as_ref())?;
-        let client = Client{
+        let mut client = Client{
             stream,
         };
+        client.send_stdin_out();
         Ok(client)
     }
 
@@ -108,6 +130,13 @@ impl Client{
     pub fn send_str(&mut self,data:&str){
         self.stream.write_all(data.as_bytes()).unwrap();
         self.stream.flush().unwrap();
+    }
+
+    fn send_stdin_out(&mut self){
+        let pipe:[libc::c_int;2] = [std::io::stdin().as_raw_fd(),std::io::stdout().as_raw_fd()];
+        unsafe { 
+            self.stream.send_with_fd(&[15], std::slice::from_raw_parts(pipe.as_ptr(), 2)).unwrap();
+        }
     }
 }
 
@@ -135,4 +164,25 @@ pub fn get_output()->Box<dyn Write>{
             Box::new((*stream.stream).try_clone().unwrap()) as Box<dyn Write>
         }
     }
+}
+
+pub fn setup_client_stdin_out()->Result<(),()>{
+    unsafe {
+        let sp =  get_thread_specifidata();
+
+        if sp.is_none(){
+            return Err(());
+        }
+        let sp = sp.unwrap();
+        let mut s:MaybeUninit<libc::termios> = MaybeUninit::zeroed();
+        libc::tcgetattr(sp.client_stdin, s.as_mut_ptr());
+        let mut term = s.assume_init();
+        term.c_lflag &= !libc::ICANON;
+        term.c_lflag &= !libc::ECHO;
+        libc::tcsetattr(sp.client_stdin, libc::TCSANOW, &term as *const libc::termios);
+
+        libc::dup2(sp.client_stdin,libc::STDIN_FILENO);
+        libc::dup2(sp.client_stdout,libc::STDOUT_FILENO);
+    }
+    Ok(())
 }
