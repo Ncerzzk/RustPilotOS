@@ -1,6 +1,7 @@
 use std::{
     collections::HashMap,
     mem::MaybeUninit,
+    ptr::null_mut,
     sync::{
         atomic::{AtomicBool, AtomicU32, Ordering},
         Condvar, Mutex,
@@ -11,9 +12,24 @@ pub struct Sender<T> {
     parent: *mut Channel<T>,
 }
 
+impl<T> Default for Sender<T> {
+    fn default() -> Self {
+        Self { parent: null_mut() }
+    }
+}
+
 pub struct Receiver<T> {
     parent: *mut Channel<T>,
     last_cnt: u32,
+}
+
+impl<T> Default for Receiver<T> {
+    fn default() -> Self {
+        Self {
+            parent: null_mut(),
+            last_cnt: 0,
+        }
+    }
 }
 
 unsafe impl<T> Send for Sender<T> {}
@@ -78,6 +94,9 @@ impl<T> Clone for Receiver<T> {
 
 impl<T> Drop for Receiver<T> {
     fn drop(&mut self) {
+        if self.parent == null_mut() {
+            return;
+        }
         let channel = unsafe { &mut *(self.parent) };
         if channel.receiver_cnt.fetch_sub(1, Ordering::AcqRel) == 1 {
             if channel.destoryed.swap(true, Ordering::AcqRel) == true {
@@ -112,6 +131,9 @@ impl<T> Clone for Sender<T> {
 
 impl<T> Drop for Sender<T> {
     fn drop(&mut self) {
+        if self.parent == null_mut() {
+            return;
+        }
         let channel = unsafe { &mut *(self.parent) };
         if channel.sender_cnt.fetch_sub(1, Ordering::AcqRel) == 1 {
             if channel.destoryed.swap(true, Ordering::AcqRel) == true {
