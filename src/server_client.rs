@@ -92,7 +92,7 @@ pub fn server_init<P: AsRef<Path>>(socket_path: P) -> Result<(), std::io::Error>
             }
 
             let mut client_cp = client.try_clone().unwrap();
-            let x = SchedulePthread::new_simple(Box::new(move || {
+            let x = SchedulePthread::new_simple(Box::new(move |_| {
                 let cmd_with_args: Vec<_> = cmd_raw.split_whitespace().collect();
                 assert!(cmd_with_args.len() >= 1);
 

@@ -35,13 +35,13 @@ impl SchedulePthread {
     fn simple_wrapper(ptr: *mut libc::c_void) -> *mut libc::c_void {
         let sp = unsafe { Arc::from_raw(ptr as *const SchedulePthread) };
 
-        let b = sp.thread_args as *mut Box<dyn FnOnce()>;
+        let b = sp.thread_args as *mut Box<dyn FnOnce(Arc<SchedulePthread>)>;
         let a = unsafe { Box::from_raw(b) };
-        (a)();
+        (a)(sp);
         null_mut()
     }
 
-    pub fn new_simple(f: Box<dyn FnOnce()>) -> Arc<Self> {
+    pub fn new_simple(f: Box<dyn FnOnce(Arc<SchedulePthread>)>) -> Arc<Self> {
         let func = Box::new(f);
 
         let a = Box::into_raw(func) as *mut libc::c_void;
@@ -188,7 +188,7 @@ mod tests {
     fn test_simple_thread() {
         let a = 1;
 
-        let thread = SchedulePthread::new_simple(Box::new(move || {
+        let thread = SchedulePthread::new_simple(Box::new(move |_| {
             assert_eq!(a, 1);
         }));
 
