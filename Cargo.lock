@@ -411,6 +411,7 @@ dependencies = [
  "fdt",
  "libc 0.2.150",
  "polling",
+ "sendfd",
 ]
 
 [[package]]
@@ -439,6 +440,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "93fc1dc3aaa9bfed95e02e6eadabb4baf7e3078b0bd1b4d7b6b0b68378900502"
 dependencies = [
  "winapi-util",
+]
+
+[[package]]
+name = "sendfd"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "604b71b8fc267e13bb3023a2c901126c8f349393666a6d98ac1ae5729b701798"
+dependencies = [
+ "libc 0.2.152",
 ]
 
 [[package]]

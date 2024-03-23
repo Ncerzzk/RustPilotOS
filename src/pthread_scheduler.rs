@@ -49,6 +49,17 @@ impl SchedulePthread {
         Self::new(8192, 50, Self::simple_wrapper, a, false, None)
     }
 
+    pub fn new_fifo(
+        stack_size: u32,
+        priority: i32,
+        f: Box<dyn FnOnce(Arc<SchedulePthread>)>,
+    ) -> Arc<Self> {
+        let func = Box::new(f);
+
+        let a = Box::into_raw(func) as *mut libc::c_void; 
+        Self::new(stack_size, priority, Self::simple_wrapper, a, true, None)
+    }
+
     pub fn new(
         stack_size: u32,
         priority: i32,
