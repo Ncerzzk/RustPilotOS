@@ -46,7 +46,7 @@ impl SchedulePthread {
 
         let a = Box::into_raw(func) as *mut libc::c_void;
 
-        Self::new(8192, 50, Self::simple_wrapper, a, false, None)
+        Self::new(1024 * 1024, 50, Self::simple_wrapper, a, false, None)
     }
 
     pub fn new_fifo(
@@ -148,7 +148,7 @@ mod tests {
 
         let mut num = 0;
         let sp = SchedulePthread::new(
-            2048,
+            16384,
             1,
             test,
             &mut num as *mut i32 as *mut libc::c_void,
@@ -184,7 +184,7 @@ mod tests {
 
         let mut num = 0;
         let sp = SchedulePthread::new(
-            2048,
+            16384,
             99,
             test,
             &mut num as *mut i32 as *mut libc::c_void,

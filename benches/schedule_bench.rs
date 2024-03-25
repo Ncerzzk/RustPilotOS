@@ -38,7 +38,7 @@ fn test_schedule_bench(c: &mut Criterion) {
     }
 
     let sp = SchedulePthread::new(
-        2048,
+        16384,
         98,
         test,
         c as *mut Criterion as *mut libc::c_void,
@@ -69,7 +69,7 @@ fn test_schedule_bench_real_100us(c: &mut Criterion) {
     unsafe {assert_eq!(libc::mlockall(1 | 2),0)};
     
     let sp = SchedulePthread::new(
-        2048,
+        16384,
         98,
         test,
         c as *mut Criterion as *mut libc::c_void,
@@ -104,7 +104,7 @@ fn test_schedule_bench_hrt2call(c: &mut Criterion) {
     }
 
     let sp = SchedulePthread::new(
-        2048,
+        16384,
         98,
         test,
         c as *mut Criterion as *mut libc::c_void,

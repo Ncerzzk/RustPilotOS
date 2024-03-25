@@ -36,16 +36,16 @@ pub fn create_phtread(
         let mut attr = MaybeUninit::<libc::pthread_attr_t>::uninit();
         let attr_ptr = attr.as_mut_ptr();
         libc::pthread_attr_init(attr_ptr);
-        libc::pthread_attr_setstacksize(attr_ptr, stack_size as usize);
-        libc::pthread_attr_setinheritsched(attr_ptr, libc::PTHREAD_EXPLICIT_SCHED);
+        assert_eq!(libc::pthread_attr_setstacksize(attr_ptr, stack_size as usize), 0);
+        assert_eq!(libc::pthread_attr_setinheritsched(attr_ptr, libc::PTHREAD_EXPLICIT_SCHED), 0);
         {
             if is_fifo_schedule {
-                libc::pthread_attr_setschedpolicy(attr_ptr, libc::SCHED_FIFO);
+                assert_eq!(libc::pthread_attr_setschedpolicy(attr_ptr, libc::SCHED_FIFO), 0);
                 if libc::getuid() !=0{
                     panic!("please use root to create the fifo thread!");
                 }
             } else {
-                libc::pthread_attr_setschedpolicy(attr_ptr, libc::SCHED_OTHER);
+                assert_eq!(libc::pthread_attr_setschedpolicy(attr_ptr, libc::SCHED_OTHER), 0);
             }
         }
 
@@ -71,7 +71,7 @@ mod tests {
     }
     #[test]
     fn test_create_pthread() {
-        create_phtread(2048, 1, testfunc, 0 as *mut libc::c_void, false);
+        create_phtread(16384, 1, testfunc, 0 as *mut libc::c_void, false);
     }
 
     extern "C" fn sleep_func(ret: *mut libc::c_void) -> *mut libc::c_void {
@@ -107,7 +107,7 @@ mod tests {
 
             libc::signal(libc::SIGCONT, signal_handler as libc::sighandler_t);
         }
-        let thread = create_phtread(2048, 1, sleep_func, ptr, false);
+        let thread = create_phtread(16384, 1, sleep_func, ptr, false);
 
         nanosleep(499999999); // sleep to make sure the pthread has get into sleep
         unsafe {

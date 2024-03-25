@@ -92,7 +92,7 @@ mod tests {
         unsafe {
             libc::signal(libc::SIGUSR1, signal_handler as libc::sighandler_t);
         }
-        let thread = create_phtread(2048, 1, sleep_func, ptr, false);
+        let thread = create_phtread(16384, 1, sleep_func, ptr, false);
 
         nanosleep(499999999); // sleep to make sure the pthread has get into sleep
         unsafe {

@@ -186,7 +186,7 @@ impl HRTQueue {
             fifo_scheduled = true;
         }
 
-        let _thread_id = create_phtread(2048, 99, hrtqueue_run, queue_ptr, fifo_scheduled);
+        let _thread_id = create_phtread(16384, 99, hrtqueue_run, queue_ptr, fifo_scheduled);
         queue.thread_id = _thread_id;
 
         unsafe {
