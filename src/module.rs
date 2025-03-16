@@ -8,6 +8,7 @@ unsafe impl Sync for Module {}
 
 pub type SubCallbackBox = Box<dyn Fn(u32, *const &str)>;
 pub struct Module {
+    #[allow(unused)]
     name: &'static str,
     init_func: Box<dyn Fn(u32, *const &str) + 'static>,
 }

@@ -10,7 +10,6 @@ use std::{
         unix::net::{UnixListener, UnixStream},
     },
     path::Path,
-    ptr::null,
     sync::LazyLock,
 };
 

@@ -1,5 +1,3 @@
-#![feature(lazy_cell)]
-#![feature(new_uninit)]
 pub mod pthread;
 pub mod hrt;
 pub mod msg;
