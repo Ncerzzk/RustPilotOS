@@ -1,60 +1,16 @@
-use polling::{Event, Events, Poller};
 use sendfd::{RecvWithFd, SendWithFd};
 use std::{
-    collections::HashMap,
-    ffi::CStr,
-    io::{self, BufRead, BufReader, Read, Write},
-    mem::MaybeUninit,
-    os::{
-        fd::AsRawFd,
+    cell::Cell, ffi::CStr, io::{self, BufRead, BufReader, Read, Write}, mem::MaybeUninit, os::{
+        fd::{AsRawFd, FromRawFd},
         unix::net::{UnixListener, UnixStream},
-    },
-    path::Path,
-    sync::LazyLock,
+    }, path::Path
 };
 
-use crate::{module::Module, pthread_scheduler::SchedulePthread};
+use crate::module::Module;
 
-#[repr(C)]
-struct ThreadSpecificData {
-    stream: *mut UnixStream,
-    client_stdin: libc::c_int,
-    client_stdout: libc::c_int,
-}
-
-static PTHREAD_KEY: LazyLock<u32> = LazyLock::new(|| {
-    let mut key: MaybeUninit<u32> = MaybeUninit::zeroed();
-    unsafe {
-        libc::pthread_key_create(key.as_mut_ptr(), Some(drop_specifidata));
-        key.assume_init()
-    }
-});
-
-fn set_thread_specifidata(data: ThreadSpecificData) {
-    let data = Box::new(data);
-    let data = Box::leak(data);
-    unsafe {
-        libc::pthread_setspecific(
-            *PTHREAD_KEY,
-            &*data as *const ThreadSpecificData as *const libc::c_void,
-        );
-    }
-}
-
-fn get_thread_specifidata() -> Option<&'static ThreadSpecificData> {
-    unsafe {
-        let ret = libc::pthread_getspecific(*PTHREAD_KEY) as *const ThreadSpecificData;
-        if ret == std::ptr::null() {
-            return None;
-        }
-        Some(&*ret)
-    }
-}
-
-unsafe extern "C" fn drop_specifidata(ptr: *mut libc::c_void) {
-    unsafe {
-        drop(Box::from_raw(ptr as *mut ThreadSpecificData));
-    };
+thread_local! {
+   static CLIENT_STDIN:Cell<libc::c_int> = Cell::new(-1);
+   static CLIENT_STDOUT:Cell<libc::c_int> = Cell::new(-1); 
 }
 
 pub fn server_init<P: AsRef<Path>>(socket_path: P) -> Result<(), std::io::Error> {
@@ -63,8 +19,6 @@ pub fn server_init<P: AsRef<Path>>(socket_path: P) -> Result<(), std::io::Error>
     let listener = UnixListener::bind(socket_path.as_ref()).unwrap();
     listener.set_nonblocking(true).unwrap();
 
-    let poller = Poller::new().unwrap();
-    let mut fd_thread_map: HashMap<usize, libc::c_ulong> = HashMap::new();
     loop {
         if let Ok((mut client, _)) = listener.accept() {
             let mut fds: [libc::c_int; 2] = [0; 2];
@@ -90,40 +44,18 @@ pub fn server_init<P: AsRef<Path>>(socket_path: P) -> Result<(), std::io::Error>
                 break;
             }
 
-            let mut client_cp = client.try_clone().unwrap();
-            let x = SchedulePthread::new_simple(Box::new(move |_| {
+            let client_cp = client.try_clone().unwrap();
+            let _x = std::thread::spawn(move ||{
                 let cmd_with_args: Vec<_> = cmd_raw.split_whitespace().collect();
                 assert!(cmd_with_args.len() >= 1);
 
-                let data = ThreadSpecificData {
-                    stream: &mut client_cp as *mut UnixStream,
-                    client_stdin: fds[0],
-                    client_stdout: fds[1],
-                };
-                set_thread_specifidata(data);
+                CLIENT_STDIN.set( fds[0]);
+                CLIENT_STDOUT.set(fds[1]);
+
                 Module::get_module(cmd_with_args[0])
                     .execute((cmd_with_args.len()) as u32, cmd_with_args.as_ptr());
                 _ = client_cp.shutdown(std::net::Shutdown::Both);
-            }));
-            unsafe {
-                poller
-                    .add(
-                        &client,
-                        Event::none(client.as_raw_fd() as usize).with_interrupt(),
-                    )
-                    .unwrap()
-            };
-            fd_thread_map.insert(client.as_raw_fd() as usize, x.thread_id);
-        }
-
-        let mut events = Events::new();
-        let _ = poller.wait(&mut events, Some(std::time::Duration::from_secs(1)));
-
-        for ev in events.iter() {
-            let thread = fd_thread_map.remove(&ev.key).unwrap();
-            unsafe {
-                libc::pthread_cancel(thread); // some memory may leak
-            }
+            });
         }
     }
 
@@ -184,36 +116,36 @@ macro_rules! thread_log {
 }
 
 pub fn get_output() -> Box<dyn Write> {
-    let thread_data = unsafe { libc::pthread_getspecific(*PTHREAD_KEY) };
-    if thread_data == std::ptr::null_mut() {
+    let output = CLIENT_STDOUT.get();
+    if output == -1 {
         Box::new(std::io::stdout()) as Box<dyn Write>
     } else {
-        let stream: &ThreadSpecificData = unsafe { &mut *(thread_data as *mut ThreadSpecificData) };
-        unsafe { Box::new((*stream.stream).try_clone().unwrap()) as Box<dyn Write> }
+        // let stream: &ThreadSpecificData = unsafe { &mut *(thread_data as *mut ThreadSpecificData) };
+        // unsafe { Box::new((*stream.stream).try_clone().unwrap()) as Box<dyn Write> }
+        let fd = unsafe { std::fs::File::from_raw_fd(CLIENT_STDOUT.get()) };
+        Box::new(fd) as Box<dyn Write>
     }
 }
 
 pub fn setup_client_stdin_out() -> Result<(), ()> {
-    unsafe {
-        let sp = get_thread_specifidata();
+    if CLIENT_STDIN.get() == -1 || CLIENT_STDOUT.get() == -1{
+        return Err(());
+    }
 
-        if sp.is_none() {
-            return Err(());
-        }
-        let sp = sp.unwrap();
+    unsafe {
         let mut s: MaybeUninit<libc::termios> = MaybeUninit::zeroed();
-        libc::tcgetattr(sp.client_stdin, s.as_mut_ptr());
+        libc::tcgetattr(CLIENT_STDIN.get(), s.as_mut_ptr());
         let mut term = s.assume_init();
         term.c_lflag &= !libc::ICANON;
         term.c_lflag &= !libc::ECHO;
         libc::tcsetattr(
-            sp.client_stdin,
+            CLIENT_STDIN.get(),
             libc::TCSANOW,
             &term as *const libc::termios,
         );
 
-        libc::dup2(sp.client_stdin, libc::STDIN_FILENO);
-        libc::dup2(sp.client_stdout, libc::STDOUT_FILENO);
+        libc::dup2(CLIENT_STDIN.get(), libc::STDIN_FILENO);
+        libc::dup2(CLIENT_STDOUT.get(), libc::STDOUT_FILENO);
     }
     Ok(())
 }

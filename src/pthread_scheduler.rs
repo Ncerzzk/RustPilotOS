@@ -1,6 +1,5 @@
 use std::{
-    ptr::null_mut,
-    sync::{Arc, RwLock},
+    cell::Cell, ptr::null_mut, sync::Arc
 };
 
 use libc::{c_long, c_ulong};
@@ -10,24 +9,21 @@ use crate::{
     pthread::{create_phtread, nanosleep},
 };
 
+thread_local! {
+    static LAST_SCHEDULED_TIME:Cell<Timespec> = Cell::new(Timespec{sec: 0, nsec:0});
+    static DEADLINE:Cell<Timespec> = Cell::new(Timespec{sec: 0, nsec:0});
+}
+
 pub struct SchedulePthread {
-    specific_data: *const libc::c_void,
-    specific_key: Option<u32>,
     thread_func: fn(*mut libc::c_void) -> *mut libc::c_void,
     pub thread_args: *mut libc::c_void,
-    pub last_scheduled_time: RwLock<Timespec>,
     pub thread_id: c_ulong,
-    pub deadline: RwLock<Timespec>,
 }
 
 impl SchedulePthread {
     extern "C" fn wrapper(ptr: *mut libc::c_void) -> *mut libc::c_void {
         let sp = unsafe { Arc::from_raw(ptr as *const SchedulePthread) };
-        if let Some(key) = sp.specific_key {
-            unsafe {
-                libc::pthread_setspecific(key, sp.specific_data);
-            }
-        };
+        
         (sp.thread_func)(Arc::into_raw(sp) as *mut libc::c_void);
         null_mut()
     }
@@ -46,7 +42,7 @@ impl SchedulePthread {
 
         let a = Box::into_raw(func) as *mut libc::c_void;
 
-        Self::new(1024 * 1024, 50, Self::simple_wrapper, a, false, None)
+        Self::new(1024 * 1024, 50, Self::simple_wrapper, a, false)
     }
 
     pub fn new_fifo(
@@ -57,7 +53,7 @@ impl SchedulePthread {
         let func = Box::new(f);
 
         let a = Box::into_raw(func) as *mut libc::c_void; 
-        Self::new(stack_size, priority, Self::simple_wrapper, a, true, None)
+        Self::new(stack_size, priority, Self::simple_wrapper, a, true)
     }
 
     pub fn new(
@@ -66,25 +62,11 @@ impl SchedulePthread {
         f: fn(*mut libc::c_void) -> *mut libc::c_void,
         extral_args: *mut libc::c_void,
         is_fifo_schedule: bool,
-        pthread_key: Option<u32>,
     ) -> Arc<Self> {
-        let spec_data;
-        if let Some(pthread_key) = pthread_key {
-            unsafe {
-                spec_data = libc::pthread_getspecific(pthread_key);
-            }
-        } else {
-            spec_data = null_mut();
-        }
-
         let ret = Arc::new(SchedulePthread {
-            specific_data: spec_data,
-            specific_key: pthread_key,
             thread_func: f,
             thread_args: extral_args,
-            last_scheduled_time: RwLock::new(get_time_now()),
-            thread_id: 0,
-            deadline: RwLock::new(get_time_now()),
+            thread_id: 0
         });
         let id = create_phtread(
             stack_size,
@@ -106,18 +88,18 @@ impl SchedulePthread {
     }
 
     pub fn schedule_after(self: &Arc<Self>, us: c_long) {
-        *(self.deadline.write().unwrap()) = get_time_now() + us * 1000;
+        DEADLINE.set(get_time_now() + us * 1000);
         nanosleep(us * 1000);
-        *(self.last_scheduled_time.write().unwrap()) = get_time_now();
+        LAST_SCHEDULED_TIME.set(get_time_now());
     }
 
     pub fn schedule_until(self: &Arc<Self>, us: c_long) {
-        let deadline = *(self.last_scheduled_time.read().unwrap()) + us * 1000;
-        *(self.deadline.write().unwrap()) = deadline;
+        let deadline = LAST_SCHEDULED_TIME.get() + us * 1000;
+        DEADLINE.set(deadline);
 
         let now = get_time_now();
         nanosleep((deadline - now).to_nano() as c_long);
-        *(self.last_scheduled_time.write().unwrap()) = get_time_now();
+        LAST_SCHEDULED_TIME.set(get_time_now());
     }
 }
 
