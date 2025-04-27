@@ -55,7 +55,7 @@ pub fn lock_step_nanosleep(ns: i64) -> i64 {
         let current = *current_guard;
         if current >= deadline {
             break 0;
-        } else if LOCK_STEP_EARLY_WAKEN.fetch_nand(true, Ordering::SeqCst) {
+        } else if LOCK_STEP_EARLY_WAKEN.load(Ordering::SeqCst) {
             break { (deadline - current).to_nano() };
         }
         drop(LOCK_STEP_CONVAR.wait(current_guard));
