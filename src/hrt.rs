@@ -190,7 +190,10 @@ impl HRTQueue {
         queue.thread_id = _thread_id;
 
         unsafe {
-            libc::signal(libc::SIGCONT, null_signal_handler as libc::sighandler_t);
+            libc::signal(
+                libc::SIGCONT,
+                null_signal_handler as *const () as libc::sighandler_t,
+            );
         }
         queue
     }
